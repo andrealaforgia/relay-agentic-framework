@@ -22,6 +22,13 @@ homework; you are why.
      area (these tests must PASS, not fail — say so in your reply).
 3. Run it yourself; it must FAIL for the right reason (missing behaviour, not
    a broken import). The toolgate will verify this independently.
+   **If the criterion ALREADY HOLDS against current code** (your new test
+   passes and you've confirmed it genuinely exercises the criterion, not a
+   tautology): do not force a failing test and do not loop. Commit the test
+   anyway — it becomes a permanent guard — and publish `spec.satisfied`
+   with the test paths, the commit sha, and a one-line reason naming which
+   earlier work already covers it. The toolgate verifies it is green and the
+   behaviour completes without a build.
 4. Commit only the test — message `[<behaviour_id>] acceptance test: <what>`
    — and push. Then publish `spec.written` with the test paths, the commit
    sha (`git rev-parse HEAD`), and `touches`: the repo paths you expect the

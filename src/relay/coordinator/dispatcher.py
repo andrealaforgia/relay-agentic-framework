@@ -60,6 +60,7 @@ class Dispatcher:
 
     def react(self, state: SwarmState) -> int:
         published = self._maybe_request_recon(state)
+        published += self._escalate_orphan_errors(state)
         if not state.roadmap_committed:
             return published
         if not self._roadmap_valid(state):
@@ -92,6 +93,21 @@ class Dispatcher:
         )
         state.recon_requested = True
         return 1
+
+    def _escalate_orphan_errors(self, state: SwarmState) -> int:
+        """error.raised without a behaviour still reaches the owner, exactly once
+        (the escalation carries source_event_id; replay clears it)."""
+        published = 0
+        for event_id, detail in list(state.unescalated_errors.items()):
+            self._publisher.send(
+                COORDINATOR, "interpreter", "decision.requested",
+                {"gate_id": _new_gate_id(), "subject_id": "swarm",
+                 "reason": f"an assistant reported an error: {detail}",
+                 "source_event_id": event_id},
+            )
+            del state.unescalated_errors[event_id]
+            published += 1
+        return published
 
     # ── roadmap validation (lesson 4 lives in code) ─────────────────────────
 
@@ -150,9 +166,35 @@ class Dispatcher:
         return 1
 
     def _advance_one(self, state: SwarmState, b: Behaviour) -> int:
+        if b.error_reported is not None:
+            # an assistant said it is stuck: that must never vanish (fail loud)
+            reason = b.error_reported
+            b.error_reported = None
+            self._publisher.send(
+                COORDINATOR, "interpreter", "decision.requested",
+                {"gate_id": _new_gate_id(), "subject_id": b.id,
+                 "reason": f"assistant reported an error on {b.id}: {reason}"},
+                behaviour_id=b.id, iteration_id=b.iteration_id,
+            )
+            b.state = BehaviourState.BLOCKED
+            return 1
         if b.state == BehaviourState.SPEC_READY:
             return self._request_run(state, b, RunPurpose.RED_VERIFICATION)
+        if b.state == BehaviourState.SATISFIED_CLAIMED:
+            return self._request_run(state, b, RunPurpose.SATISFIED_CHECK)
         if b.state == BehaviourState.RED_FAILED:
+            if b.spec_attempts >= self._policy.max_attempts:
+                self._publisher.send(
+                    COORDINATOR, "interpreter", "decision.requested",
+                    {"gate_id": _new_gate_id(), "subject_id": b.id,
+                     "reason": (f"behaviour {b.id} failed red-verification "
+                                f"{b.spec_attempts} times: "
+                                f"{b.last_fail_reason or 'spec loop'} — re-scope, mark as "
+                                f"already covered, or drop it")},
+                    behaviour_id=b.id, iteration_id=b.iteration_id,
+                )
+                b.state = BehaviourState.BLOCKED
+                return 1
             return self._dispatch_spec(b)
         if b.state == BehaviourState.RED_VERIFIED:
             blocked = self._block_uncharacterized(state, b)
@@ -231,7 +273,9 @@ class Dispatcher:
         return published
 
     def _request_run(self, state: SwarmState, b: Behaviour, purpose: RunPurpose) -> int:
-        commit = b.spec_commit if purpose == RunPurpose.RED_VERIFICATION else b.built_commit
+        commit = (b.spec_commit
+                  if purpose in (RunPurpose.RED_VERIFICATION, RunPurpose.SATISFIED_CHECK)
+                  else b.built_commit)
         run_id = _new_run_id()
         self._publisher.send(
             COORDINATOR, "toolgate", "run.requested",
@@ -246,11 +290,10 @@ class Dispatcher:
             commit_sha=commit,
         )
         state.runs[run_id] = RunInfo(run_id=run_id, purpose=purpose, behaviour_id=b.id)
-        b.state = (
-            BehaviourState.RED_PENDING
-            if purpose == RunPurpose.RED_VERIFICATION
-            else BehaviourState.AT_RUN_PENDING
-        )
+        b.state = {
+            RunPurpose.RED_VERIFICATION: BehaviourState.RED_PENDING,
+            RunPurpose.SATISFIED_CHECK: BehaviourState.SATISFIED_PENDING,
+        }.get(purpose, BehaviourState.AT_RUN_PENDING)
         return 1
 
     def _rework_or_escalate(self, b: Behaviour, reason: str) -> int:

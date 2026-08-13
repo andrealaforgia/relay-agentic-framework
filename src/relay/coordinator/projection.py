@@ -163,6 +163,7 @@ def _spec_requested(state: SwarmState, env: Envelope) -> None:
     if b:
         b.state = BehaviourState.SPEC_DISPATCHED
         b.base_sha = str(env.payload["base_sha"])
+        b.spec_attempts += 1
 
 
 def _spec_ready(state: SwarmState, env: Envelope) -> None:
@@ -172,6 +173,33 @@ def _spec_ready(state: SwarmState, env: Envelope) -> None:
         b.test_paths = list(env.payload["test_paths"])
         b.touches = list(env.payload.get("touches", []))
         b.spec_commit = str(env.payload["commit_sha"])
+
+
+def _spec_satisfied(state: SwarmState, env: Envelope) -> None:
+    """The specifier declares the criterion already holds: the committed test
+    is a guard, and the toolgate must still prove it green."""
+    b = _behaviour(state, env)
+    if b and b.state == BehaviourState.SPEC_DISPATCHED:
+        b.state = BehaviourState.SATISFIED_CLAIMED
+        b.test_paths = list(env.payload["test_paths"])
+        b.spec_commit = str(env.payload["commit_sha"])
+
+
+def _error_raised(state: SwarmState, env: Envelope) -> None:
+    """An assistant reported it is stuck: this must never vanish."""
+    detail = str(env.payload.get("detail", env.payload.get("kind", "error")))
+    b = _behaviour(state, env)
+    if b is not None:
+        b.error_reported = detail
+    else:
+        state.unescalated_errors[env.event_id] = f"{env.from_role}: {detail}"
+
+
+def _decision_requested(state: SwarmState, env: Envelope) -> None:
+    _owner_decision_needed(state, env)
+    source = env.payload.get("source_event_id")
+    if source:
+        state.unescalated_errors.pop(str(source), None)
 
 
 def _run_requested(state: SwarmState, env: Envelope) -> None:
@@ -196,6 +224,9 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
     elif b.state == BehaviourState.BUILT:
         purpose = RunPurpose.AT_GREEN
         b.state = BehaviourState.AT_RUN_PENDING
+    elif b.state == BehaviourState.SATISFIED_CLAIMED:
+        purpose = RunPurpose.SATISFIED_CHECK
+        b.state = BehaviourState.SATISFIED_PENDING
     else:
         return
     state.runs[run_id] = RunInfo(run_id=run_id, purpose=purpose, behaviour_id=b.id)
@@ -229,6 +260,14 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
         else:
             b.state = BehaviourState.AT_RED
             b.last_fail_reason = "acceptance test still failing after build"
+    elif run.purpose == RunPurpose.SATISFIED_CHECK and b.state == BehaviourState.SATISFIED_PENDING:
+        if run.exit_code == 0:
+            # criterion machine-verified as already met; the guard test stands
+            b.state = BehaviourState.DONE
+            b.built_commit = b.spec_commit
+        else:
+            b.state = BehaviourState.RED_FAILED
+            b.last_fail_reason = "claimed already-satisfied, but the guard test fails"
 
 
 def _build_requested(state: SwarmState, env: Envelope) -> None:
@@ -348,13 +387,15 @@ _HANDLERS = {
     "iteration.aborted": _iteration_aborted,
     "story.completed": _story_done_announced,
     "iteration.finished": _iteration_ready_announced,
-    "decision.requested": _owner_decision_needed,
+    "decision.requested": _decision_requested,
     "pr.approved": _pr_approved,
     "pr.opened": _pr_opened,
     "recon.requested": _recon_requested,
     "recon.completed": _recon_report,
     "spec.requested": _spec_requested,
     "spec.written": _spec_ready,
+    "spec.satisfied": _spec_satisfied,
+    "error.raised": _error_raised,
     "build.requested": _build_requested,
     "rework.requested": _rework_requested,
     "behaviour.built": _built,

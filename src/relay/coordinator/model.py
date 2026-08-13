@@ -18,6 +18,8 @@ class BehaviourState(StrEnum):
     RED_PENDING = "red_pending"          # red-verification run dispatched to toolgate
     RED_FAILED = "red_failed"            # verification outcome wrong — back to specifier
     RED_VERIFIED = "red_verified"
+    SATISFIED_CLAIMED = "satisfied_claimed"   # specifier: criterion already holds
+    SATISFIED_PENDING = "satisfied_pending"   # toolgate verifying the guard test is green
     BUILD_DISPATCHED = "build_dispatched"
     BUILT = "built"
     AT_RUN_PENDING = "at_run_pending"    # post-build AT run dispatched to toolgate
@@ -37,6 +39,7 @@ class RunPurpose(StrEnum):
     RED_VERIFICATION = "red_verification"
     AT_GREEN = "at_green"
     MUTATION = "mutation"
+    SATISFIED_CHECK = "satisfied_check"
 
 
 @dataclass
@@ -65,6 +68,8 @@ class Behaviour:
     ac_text: str
     state: BehaviourState = BehaviourState.PLANNED
     attempt: int = 1
+    spec_attempts: int = 0               # spec.requested dispatches (respec-loop cap)
+    error_reported: str | None = None    # unresolved error.raised detail
     test_paths: list[str] = field(default_factory=list)
     touches: list[str] = field(default_factory=list)
     base_sha: str | None = None
@@ -142,6 +147,9 @@ class SwarmState:
     # last progress.reported announced, as (iteration_id, behaviours_done) — derived
     # from the ledger so a restarted coordinator never re-announces
     last_progress: tuple[str, int] | None = None
+    # error.raised events without a behaviour, not yet escalated (event_id -> detail);
+    # the coordinator's decision.requested carries source_event_id, which clears them
+    unescalated_errors: dict[str, str] = field(default_factory=dict)
 
     def iteration_behaviours(self, iteration_id: str) -> list[Behaviour]:
         return [

@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `383318bda3428fe4d346800895154a4d85ee43383710aa05620500056c277060`.
+Contract version 1, hash `e2374736a60ba28482f9c5d972f7baacfcde5e3ea0a552eacc80721a18c7387e`.
 
 ## Roles
 
@@ -24,7 +24,7 @@ Contract version 1, hash `383318bda3428fe4d346800895154a4d85ee43383710aa05620500
 | work | `coordinator>builder` | `build.requested`, `pause.ordered`, `resume.ordered`, `rework.requested` |
 | work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `spec.requested` |
 | work | `interpreter>analyst` | `analysis.requested`, `answers.relayed` |
-| work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.written` |
+| work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.satisfied`, `spec.written` |
 | gate | `coordinator>qa` | `gate.requested`, `pause.ordered`, `resume.ordered` |
 | gate | `coordinator>reviewer` | `gate.requested`, `pause.ordered`, `resume.ordered` |
 | gate | `coordinator>security` | `gate.requested`, `pause.ordered`, `resume.ordered` |
@@ -109,6 +109,7 @@ One JSON Schema per type lives in `contract/schema/`.
 | `run.requested` | run | `run_id`, `kind`, `commit_sha` |
 | `session.started` | system | `role`, `session_ref` |
 | `spec.requested` | work | `behaviour_id`, `iteration_id`, `ac_text`, `kind`, `base_sha` |
+| `spec.satisfied` | work | `behaviour_id`, `test_paths`, `commit_sha`, `reason` |
 | `spec.written` | work | `behaviour_id`, `test_paths`, `commit_sha`, `touches` |
 | `stall.detected` | plan | `subject_id`, `waiting_on`, `since_ts` |
 | `stories.written` | work | `stories` |

@@ -223,28 +223,28 @@
   },
   "additionalProperties": false,
   "properties": {
-    "gate_id": {
-      "$ref": "#/$defs/GateId"
+    "behaviour_id": {
+      "$ref": "#/$defs/BehaviourId"
     },
-    "options": {
+    "commit_sha": {
+      "$ref": "#/$defs/GitSha"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "type": "string"
+    },
+    "test_paths": {
       "items": {
         "type": "string"
       },
+      "minItems": 1,
       "type": "array"
-    },
-    "reason": {
-      "type": "string"
-    },
-    "source_event_id": {
-      "$ref": "#/$defs/EventId"
-    },
-    "subject_id": {
-      "type": "string"
     }
   },
   "required": [
-    "gate_id",
-    "subject_id",
+    "behaviour_id",
+    "test_paths",
+    "commit_sha",
     "reason"
   ],
   "type": "object"

@@ -1,0 +1,46 @@
+[project]
+name = "relay-agentic-framework"
+version = "0.1.0"
+description = "A multi-assistant agentic delivery framework: deterministic coordination, event-sourced on Redis Streams, ATDD by construction."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Andrea Laforgia" }]
+dependencies = [
+    "redis>=5.0",
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "rich>=13.7",
+    "python-ulid>=2.7",
+    "pyyaml>=6.0",
+    "jsonschema>=4.22",
+]
+
+[project.scripts]
+relay = "relay.cli.main:app"
+relay-send = "relay.cli.send:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "fakeredis>=2.23",
+    "mypy>=1.10",
+    "types-pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/relay"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["relay"]

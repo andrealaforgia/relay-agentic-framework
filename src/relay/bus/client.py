@@ -20,4 +20,8 @@ def get_client(
         password=password or os.environ.get("REDIS_PASSWORD") or None,
         username=username or os.environ.get("REDIS_USERNAME") or None,
         decode_responses=True,
+        # Blocking XREADGROUP owns its own wait (BLOCK <ms>); a client-side
+        # socket timeout shorter than the block time kills healthy workers.
+        socket_timeout=None,
+        socket_connect_timeout=5,
     )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import socket
+import time
 from pathlib import Path
 
 import redis
@@ -89,8 +90,15 @@ class Coordinator:
     def run_forever(self, block_ms: int = 5000, max_cycles: int | None = None) -> None:
         self.bootstrap()
         cycles = 0
+        backoff = 1.0
         while not self._stopping:
-            self.step(block_ms=block_ms)
+            try:
+                self.step(block_ms=block_ms)
+                backoff = 1.0
+            except redis.RedisError as e:
+                print(f"!! redis error ({e}) — retrying in {backoff:.0f}s", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:
                 break

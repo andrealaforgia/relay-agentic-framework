@@ -108,8 +108,17 @@ class Worker:
     def run_forever(self, block_ms: int = 5000, max_cycles: int | None = None) -> None:
         self.start()
         cycles = 0
+        backoff = 1.0
         while not self._stopping:
-            self.step(block_ms=block_ms)
+            try:
+                self.step(block_ms=block_ms)
+                backoff = 1.0
+            except redis.RedisError as e:
+                # Redis down is failure mode #6: reconnect loudly, never die
+                # silently. Unacked deliveries replay after recovery.
+                print(f"!! redis error ({e}) — retrying in {backoff:.0f}s", flush=True)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:
                 break

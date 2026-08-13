@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import redis
 
@@ -45,7 +46,7 @@ def import_envelopes(client: redis.Redis, swarm: str, envelopes: Iterable[Envelo
     max_seq = 0
     count = 0
     for env in envelopes:
-        client.xadd(stream, env.to_fields())
+        client.xadd(stream, cast("dict[Any, Any]", env.to_fields()))
         if env.seq is not None:
             max_seq = max(max_seq, env.seq)
         count += 1

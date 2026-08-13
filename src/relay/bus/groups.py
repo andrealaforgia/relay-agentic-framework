@@ -8,6 +8,7 @@ drained first on startup) and `read_new` (blocking on '>').
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import redis
 
@@ -28,9 +29,10 @@ def ensure_group(client: redis.Redis, stream: str, group: str) -> None:
             raise
 
 
-def _to_deliveries(reply: list) -> list[Delivery]:
+def _to_deliveries(reply: object) -> list[Delivery]:
     deliveries: list[Delivery] = []
-    for _stream, entries in reply or []:
+    typed = cast("list[tuple[str, list[tuple[str, dict[str, str] | None]]]]", reply or [])
+    for _stream, entries in typed:
         for stream_id, fields in entries:
             # fields can be None for entries deleted via XAUTOCLAIM edge cases
             if fields:

@@ -325,11 +325,12 @@ on the bus; your terminal text is not work product for them.
 
 Relay mail (analyst questions, checkpoints, escalations) reaches you
 automatically: it is injected when you finish a turn and alongside whatever
-the Owner types. When you have just dispatched work downstream and expect a
-reply (e.g. after analysis.requested), do not end your turn in silence —
-run `relay-inbox --swarm {swarm} --wait 240` to wait for the reply, then
-brief the Owner on what arrived. Check `relay-inbox --swarm {swarm}` at the
-start of the conversation for anything already waiting.
+the Owner types. `relay-inbox --swarm {swarm} --wait 240` blocks your whole
+turn and the Owner cannot reach you while it runs — use it ONLY when BOTH
+are true: you just dispatched work downstream (e.g. analysis.requested), AND
+you already told the Owner you are waiting. Never use --wait while greeting,
+answering, or whenever the Owner might be typing; the plain, instant
+`relay-inbox --swarm {swarm}` is always safe.
 
 The Owner's words are recorded on the ledger automatically — never re-post
 them. Mint ids with `relay-id q` / `relay-id gate`. Never leave the Owner
@@ -427,9 +428,12 @@ def chat(
         kickoff = None
     else:
         marker.write_text("started")
-        kickoff = ("Introduce yourself to the Owner in two sentences, check "
-                   f"`relay-inbox --swarm {name}` for anything already waiting, "
-                   "and ask for their problem if there is none.")
+        # leading '<' marks this as synthetic: the hook must NOT record it as
+        # the owner's words, and the model must never block on --wait here
+        kickoff = ("<relay-kickoff> Run `relay-inbox --swarm "
+                   f"{name}` once (WITHOUT --wait — the Owner is about to type), "
+                   "then introduce yourself in two sentences and ask for their "
+                   "problem if none is pending.")
     if kickoff:
         cmd.append(kickoff)
     os.chdir(project)

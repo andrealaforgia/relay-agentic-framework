@@ -350,19 +350,29 @@ def destroy(
     ):
         raise typer.Exit(0)
 
-    stopped = [role for role in list(procs.running_roles(name)) if procs.stop_worker(name, role)]
+    roles = list(procs.running_roles(name).items())
+    if roles:
+        console.print(f"stopping {len(roles)} worker(s)…")
+        for role, pid in roles:
+            console.print(f"  · {role} (pid {pid}) — waiting up to 3s for a clean exit…", end="")
+            procs.stop_worker(name, role, timeout_s=3.0)  # a doomed swarm needs no grace
+            console.print(" [green]stopped[/green]")
+    else:
+        console.print("no tracked workers running")
     strays = procs.reap_swarm(name)
-    if stopped or strays:
-        console.print(f"[green]✓[/green] stopped {len(stopped) + len(strays)} worker(s)")
+    if strays:
+        console.print(f"  · reaped {len(strays)} untracked worker(s): {', '.join(map(str, strays))}")
 
+    console.print("deleting Redis keys (ledger, groups, claims)…", end="")
     deleted = redisctl.wipe_swarm_keys(get_client(), name)
-    console.print(f"[green]✓[/green] {deleted} Redis keys deleted (ledger, groups, claims)")
+    console.print(f" [green]{deleted} deleted[/green]")
 
     state = procs.state_root() / name
     if state.exists():
+        console.print(f"removing {state} (logs, sessions, chat marker)…", end="")
         shutil.rmtree(state)
-        console.print(f"[green]✓[/green] {state} removed (logs, sessions, chat marker)")
-    console.print(f"swarm '{name}' is gone — `relay up` starts from nothing")
+        console.print(" [green]done[/green]")
+    console.print(f"[bold green]✓[/bold green] swarm '{name}' is gone — `relay up` starts from nothing")
 
 
 @app.command()

@@ -68,6 +68,9 @@ consumer's pending work and continues. Nothing is reassigned by hand.
 - The audit (`relay audit`) re-validates every entry: it proves the ledger
   could only have been produced by a correctly-enforcing publisher — or
   shows exactly where it wasn't.
-- `--dangerously-skip-permissions` is never used. Claude roles run under
-  generated permission profiles; codex roles run sandboxed
-  (`read-only` for gates, `workspace-write` for specifier/builder).
+- Claude roles run with `--dangerously-skip-permissions` by default: headless
+  denial is a silent stall, and the real guardrails are the contract-validated
+  bus, the deterministic gates, and the audit. Set
+  `skip_permissions = false` per role in `relay.toml` to use the generated
+  permission profiles instead. Codex roles run sandboxed (`read-only` for
+  gates, `workspace-write` for specifier/builder).

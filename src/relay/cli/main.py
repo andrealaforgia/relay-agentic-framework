@@ -270,7 +270,9 @@ def chat(
     marker = procs.state_root() / name / "interpreter" / "native-session"
     marker.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["claude",
+           "--dangerously-skip-permissions",
            "--append-system-prompt", system_prompt,
+           # the settings file still matters: it carries the relay-inbox hooks
            "--settings", str(settings_path(project, "interpreter")),
            "--model", str(interp_cfg.get("model") or "opus")]
     if marker.exists() and not new:

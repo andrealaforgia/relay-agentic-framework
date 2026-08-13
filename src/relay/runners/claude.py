@@ -60,8 +60,25 @@ def parse_stream_line(line: str) -> tuple[str | None, dict[str, Any] | None]:
 class ClaudeRunner:
     model: str | None = None
     settings_path: Path | None = None
+    # Andrea's call: assistants run with full autonomy — in headless mode a
+    # denied tool is a silent stall, and allowlists can never anticipate every
+    # command a builder legitimately needs. Set skip_permissions=false per
+    # role in relay.toml to fall back to the permission profile.
+    skip_permissions: bool = True
     binary: str = "claude"
     capabilities: RunnerCaps = RunnerCaps(supports_resume=True)
+
+    def build_command(self, prompt: str, session_ref: str | None) -> list[str]:
+        cmd = [self.binary, "-p", prompt, "--output-format", "stream-json", "--verbose"]
+        if self.skip_permissions:
+            cmd.append("--dangerously-skip-permissions")
+        if self.model:
+            cmd += ["--model", self.model]
+        if self.settings_path:
+            cmd += ["--settings", str(self.settings_path)]
+        if session_ref:
+            cmd += ["--resume", session_ref]
+        return cmd
 
     def run_turn(
         self,
@@ -72,13 +89,7 @@ class ClaudeRunner:
         timeout_s: int,
         on_event: OnEvent | None = None,
     ) -> TurnResult:
-        cmd = [self.binary, "-p", prompt, "--output-format", "stream-json", "--verbose"]
-        if self.model:
-            cmd += ["--model", self.model]
-        if self.settings_path:
-            cmd += ["--settings", str(self.settings_path)]
-        if session_ref:
-            cmd += ["--resume", session_ref]
+        cmd = self.build_command(prompt, session_ref)
 
         proc = subprocess.Popen(
             cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True

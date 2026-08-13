@@ -59,7 +59,8 @@ def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
     resolved = Path(str(settings)) if settings else (
         default_settings if default_settings.exists() else None
     )
-    return ClaudeRunner(model=model, settings_path=resolved)
+    skip = bool(role_cfg.get("skip_permissions", True))
+    return ClaudeRunner(model=model, settings_path=resolved, skip_permissions=skip)
 
 
 def _playbook_dir() -> Path:

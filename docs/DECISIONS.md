@@ -91,14 +91,18 @@ impossible. Commits carry `[I2.S3.B1]` subjects + `Relay-Behaviour`/`Relay-Event
 ledger↔git is greppable in both directions. PR at iteration end via `gh pr create`, on owner
 approval only; merging stays human.
 
-## D10 — Headless runners, scoped permissions
+## D10 — Headless runners; autonomy over per-tool prompts
 
 Assistants are headless worker processes (`claude -p --resume`, `codex exec`) behind a `Runner`
 protocol; viewer terminals are read-only stream consumers (`relay watch`, `relay tail`, optional
 `--tmux`). v1's AppleScript/TUI-footer scraping — its worst silent failure — is unrepresentable.
-`--dangerously-skip-permissions` is gone: per-role permission profiles are generated from
-`policies/permissions.yaml` and drift-tested. The model's only output channel is `relay-send`
-(validated publish); nothing parses model stdout.
+Claude sessions run with `--dangerously-skip-permissions` by default (Andrea's call, 2026-08-13):
+in headless mode a denied tool is a silent stall, and allowlists can never anticipate every
+command a builder legitimately needs — the guardrails that matter are the contract-validated
+bus, the deterministic gates, and the audit, not per-tool prompts. Per-role permission profiles
+still exist and can be re-enabled with `skip_permissions = false` in `relay.toml`; the
+interpreter's profile is always loaded regardless, because it carries the relay-inbox hooks.
+The model's only output channel is `relay-send` (validated publish); nothing parses model stdout.
 
 ## D11 — The framework tests itself without any LLM
 

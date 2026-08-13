@@ -162,6 +162,8 @@ def up(
     from relay.cli.profiles import write_profiles
 
     console.print(f"[green]✓[/green] {redisctl.ensure_running(procs.state_root())}")
+    if not _claim_swarm(name, project):
+        raise typer.Exit(1)
     write_profiles(project, name)  # keep permission profiles + hooks current
     for role in ("interpreter", "owner"):  # interpreter mail queues even before chat opens
         groups_mod.ensure_group(get_client(), ledger_key(name), group_name(role))
@@ -187,6 +189,25 @@ def up(
         _open_tmux(name, selected)
     if windows:
         _open_windows(name, selected)
+
+
+def _claim_swarm(name: str, project: Path) -> bool:
+    """Two folders with the same basename must not share a ledger: a swarm
+    name belongs to exactly one project directory."""
+    from relay.bus.keys import project_key
+
+    client = get_client()
+    raw_owner = client.get(project_key(name))
+    owner = raw_owner.decode() if isinstance(raw_owner, bytes) else raw_owner
+    if owner and str(owner) != str(project):
+        console.print(
+            f"[red]✗[/red] swarm '{name}' already belongs to {owner}.\n"
+            f"  Give this project its own name:  relay up . --swarm {name}-2\n"
+            f"  (or set it permanently under [swarm] name in relay.toml)"
+        )
+        return False
+    client.set(project_key(name), str(project))
+    return True
 
 
 def _open_windows(name: str, roles: list[str]) -> None:

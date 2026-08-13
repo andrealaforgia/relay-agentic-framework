@@ -29,5 +29,10 @@ def snapshot_key(swarm: str) -> str:
     return f"relay:{swarm}:snapshot:coordinator"
 
 
+def project_key(swarm: str) -> str:
+    """Which project directory owns this swarm name (collision guard)."""
+    return f"relay:{swarm}:project"
+
+
 def group_name(role: str) -> str:
     return f"cg:{role}"

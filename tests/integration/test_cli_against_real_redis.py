@@ -111,3 +111,13 @@ def test_contract_gen_and_show() -> None:
     result = runner.invoke(app, ["contract", "show"])
     assert result.exit_code == 0
     assert "message types" in result.output
+
+
+def test_swarm_name_belongs_to_one_project(tmp_path: Path) -> None:
+    from relay.cli.main import _claim_swarm
+
+    a, b = tmp_path / "x" / "myapp", tmp_path / "y" / "myapp"
+    a.mkdir(parents=True), b.mkdir(parents=True)
+    assert _claim_swarm("myapp", a) is True
+    assert _claim_swarm("myapp", a) is True   # same project re-claims freely
+    assert _claim_swarm("myapp", b) is False  # a different folder may not share the ledger

@@ -124,12 +124,88 @@ def doctor(swarm: str = SwarmOpt) -> None:
 
 
 @app.command()
+def up(
+    swarm: str = SwarmOpt,
+    project: Path = typer.Option(..., "--project", help="Target project directory"),
+    roles: str = typer.Option("", "--roles", help="Comma-separated subset (default: all Phase-1 roles)"),
+) -> None:
+    """Start the swarm's workers as detached processes."""
+    from relay.cli import procs
+
+    project = project.expanduser().resolve()
+    selected = [r.strip() for r in roles.split(",") if r.strip()] or list(procs.PHASE1_ROLES)
+    for role in selected:
+        pid = procs.start_worker(swarm, role, project)
+        console.print(f"[green]✓[/green] {role} (pid {pid}) — log: {procs.logfile(swarm, role)}")
+    console.print(f"\nnext:  relay chat --swarm {swarm}   and   relay watch --swarm {swarm}")
+
+
+@app.command()
+def down(swarm: str = SwarmOpt) -> None:
+    """Stop the swarm's workers (by pidfile — the ledger keeps everything)."""
+    from relay.cli import procs
+
+    for role in list(procs.running_roles(swarm)) or list(procs.PHASE1_ROLES):
+        if procs.stop_worker(swarm, role):
+            console.print(f"[green]✓[/green] {role} stopped")
+
+
+@app.command()
+def chat(swarm: str = SwarmOpt) -> None:
+    """Talk to the Interpreter. Async: replies render as they arrive."""
+    from relay.cli.chat import OwnerChat
+
+    OwnerChat(swarm).run()
+
+
+@app.command()
+def watch(swarm: str = SwarmOpt) -> None:
+    """Live board: assistant liveness, behaviour states, event feed."""
+    from relay.cli.watch import watch as watch_loop
+
+    try:
+        watch_loop(swarm)
+    except KeyboardInterrupt:
+        pass
+
+
+@app.command()
+def tail(
+    swarm: str = SwarmOpt,
+    role: str = typer.Option(..., "--role", help="Assistant role to follow"),
+) -> None:
+    """Follow one assistant's worker log."""
+    import time as _time
+
+    from relay.cli import procs
+
+    log = procs.logfile(swarm, role)
+    console.print(f"[dim]{log}[/dim]")
+    with log.open() as f:
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    console.print(line.rstrip())
+                else:
+                    _time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
+
+
+@app.command()
 def init(project: Path = typer.Option(..., "--project", help="Target project directory")) -> None:
     """Write a starter relay.toml into the target project."""
     project = project.expanduser().resolve()
     if not project.is_dir():
         console.print(f"[red]✗[/red] not a directory: {project}")
         raise typer.Exit(1)
+    gitignore = project / ".gitignore"
+    marker = ".relay/"
+    if not gitignore.exists() or marker not in gitignore.read_text():
+        with gitignore.open("a") as f:
+            f.write(f"\n# relay swarm runtime state\n{marker}\n")
+        console.print(f"[green]✓[/green] added {marker} to {gitignore}")
     config = project / "relay.toml"
     if config.exists():
         console.print(f"[yellow]•[/yellow] {config} already exists — leaving it untouched")

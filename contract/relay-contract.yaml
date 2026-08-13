@@ -205,11 +205,12 @@ message_types:
   chat.roadmap_proposed:
     payload_schema:
       type: object
-      required: [roadmap, narrative]
+      required: [roadmap, narrative, gate_id]
       additionalProperties: false
       properties:
         roadmap: { $ref: "#/$defs/Roadmap" }
         narrative: { type: string }
+        gate_id: { $ref: "#/$defs/GateId" }   # the Owner's chat.decision cites this
 
   chat.checkpoint:
     payload_schema:

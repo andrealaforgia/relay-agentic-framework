@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `677dd7ebe6717d0f3379c68663f9b7f1e856993c8c0de3330538f01d807210db`.
+Contract version 1, hash `2839da2ba86c3434d45186ce9828de17b3766626394b40692f16ba306d67fe86`.
 
 ## Roles
 
@@ -76,7 +76,7 @@ One JSON Schema per type lives in `contract/schema/`.
 | `chat.progress` | chat | `iteration_id`, `behaviours_done`, `behaviours_total` |
 | `chat.question` | chat | `question_id`, `questions` |
 | `chat.result` | chat | `text` |
-| `chat.roadmap_proposed` | chat | `roadmap`, `narrative` |
+| `chat.roadmap_proposed` | chat | `roadmap`, `narrative`, `gate_id` |
 | `control.ack` | control | `finding_id` |
 | `control.correction` | control | `finding_id`, `subject_event_id`, `rule_id`, `required_remedy` |
 | `control.pause` | control | `role`, `reason` |

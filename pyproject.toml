@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 relay = "relay.cli.main:app"
 relay-send = "relay.cli.send:main"
+relay-id = "relay.cli.newid:main"
 
 [dependency-groups]
 dev = [

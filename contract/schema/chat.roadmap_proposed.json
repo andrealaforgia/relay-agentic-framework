@@ -223,6 +223,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "gate_id": {
+      "$ref": "#/$defs/GateId"
+    },
     "narrative": {
       "type": "string"
     },
@@ -232,7 +235,8 @@
   },
   "required": [
     "roadmap",
-    "narrative"
+    "narrative",
+    "gate_id"
   ],
   "type": "object"
 }

@@ -11,7 +11,8 @@ import sys
 import time
 from pathlib import Path
 
-PHASE1_ROLES = ("coordinator", "toolgate", "interpreter", "analyst", "specifier", "builder")
+# the interpreter is NOT here: it lives inside `relay chat` as a live session
+PHASE1_ROLES = ("coordinator", "toolgate", "analyst", "specifier", "builder")
 
 
 def state_root() -> Path:

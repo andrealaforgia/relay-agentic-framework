@@ -172,10 +172,29 @@ def down(swarm: str = SwarmOpt) -> None:
 
 @app.command()
 def chat(swarm: str = SwarmOpt) -> None:
-    """Talk to the Interpreter. Async: replies render as they arrive."""
-    from relay.cli.chat import OwnerChat
+    """A live Claude session with the Interpreter (streams replies, keeps context)."""
+    import tomllib
 
-    OwnerChat(_swarm(swarm)).run()
+    from relay.cli import procs
+    from relay.cli.context import find_project
+    from relay.cli.interpreter_session import InterpreterSession
+    from relay.cli.profiles import settings_path
+
+    project = find_project()
+    name = _swarm(swarm)
+    config = tomllib.loads((project / "relay.toml").read_text())
+    roles_cfg = config.get("roles") or {}
+    interp_cfg = roles_cfg.get("interpreter") or {}
+    settings = settings_path(project, "interpreter")
+    playbook = Path(__file__).resolve().parents[3] / "roles" / "interpreter.md"
+    InterpreterSession(
+        swarm=name,
+        project=project,
+        model=interp_cfg.get("model"),
+        settings=settings if settings.exists() else None,
+        playbook_path=playbook,
+        state_dir=procs.state_root() / name / "interpreter",
+    ).run()
 
 
 @app.command()

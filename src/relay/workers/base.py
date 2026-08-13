@@ -8,6 +8,7 @@ past the delivery cap go to the DLQ — loudly, never silently.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import time
@@ -77,10 +78,18 @@ class Worker:
     def stop(self) -> None:
         self._stopping = True
 
-    def heartbeat(self) -> None:
+    def heartbeat(self, status: str | None = None) -> None:
+        if status is not None:
+            self._status = status
+            self._status_since = time.time()
+        payload = json.dumps({
+            "pid": os.getpid(),
+            "status": getattr(self, "_status", "idle"),
+            "since": getattr(self, "_status_since", time.time()),
+        })
         self.client.set(
             presence_key(self.swarm, self.role, socket.gethostname()),
-            str(os.getpid()),
+            payload,
             ex=PRESENCE_TTL_S,
         )
 
@@ -145,7 +154,12 @@ class Worker:
 
         started = time.monotonic()
         print(f"[{_now()}] handling {env.type} from {env.from_role} ({env.event_id})", flush=True)
-        result_id = self.handle(env)
+        self.heartbeat(status=f"working: {env.type}"
+                       + (f" [{env.behaviour_id}]" if env.behaviour_id else ""))
+        try:
+            result_id = self.handle(env)
+        finally:
+            self.heartbeat(status="idle")
         outcome = f"reply {result_id}" if result_id is not None else "no result (see above)"
         print(f"[{_now()}] done in {time.monotonic() - started:.0f}s — {outcome}", flush=True)
         if result_id is not None:

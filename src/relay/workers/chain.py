@@ -10,6 +10,7 @@ system.worker_error if the model never delivers.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import cast
 
@@ -108,12 +109,17 @@ class ChainWorker(Worker):
         )
         prompt = base_prompt
 
+        def on_event(activity: str) -> None:
+            print(f"[{time.strftime('%H:%M:%S')}]   {activity}", flush=True)
+            self.heartbeat(status=f"{env.type}: {activity[:120]}")
+
         for _correction in range(MAX_CORRECTIONS + 1):
             result = self.runner.run_turn(
                 prompt=prompt,
                 cwd=self.workspace,
                 session_ref=self._session_ref(),
                 timeout_s=TURN_TIMEOUT_S,
+                on_event=on_event,
             )
             self._save_session(result.session_ref)
 

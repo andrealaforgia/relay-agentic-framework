@@ -67,20 +67,35 @@ def _board(state: SwarmState) -> Table:
     return table
 
 
-def _presence(client: redis.Redis, swarm: str) -> Text:
-    live = sorted(
-        str(k).rsplit(":", 1)[-1]
-        for k in client.scan_iter(match=presence_key(swarm, "*", "*"))
-    )
-    text = Text("live: ")
-    if not live:
-        text.append("none", style="red")
-    for i, entry in enumerate(live):
+def _presence(client: redis.Redis, swarm: str) -> Table:
+    """Per-assistant liveness AND live activity — the 'is it stuck?' answer."""
+    import json as _json
+    import time as _time
+
+    table = Table(show_header=False, box=None, pad_edge=False)
+    table.add_column("assistant", width=14)
+    table.add_column("activity", ratio=1)
+    keys = sorted(str(k) for k in client.scan_iter(match=presence_key(swarm, "*", "*")))
+    if not keys:
+        table.add_row(Text("no live workers", style="red"), "")
+        return table
+    for key in keys:
+        entry = key.rsplit(":", 1)[-1]
         role = entry.split("@")[0]
-        if i:
-            text.append("  ")
-        text.append(entry, style=ROLE_COLORS.get(role, "white"))
-    return text
+        raw = client.get(key)
+        status, elapsed = "alive", ""
+        try:
+            info = _json.loads(str(raw))
+            status = str(info.get("status", "alive"))
+            elapsed = f" ({int(_time.time() - float(info.get('since', _time.time())))}s)"
+        except (ValueError, TypeError):
+            pass
+        style = "bright_black" if status == "idle" else "bold yellow"
+        table.add_row(
+            Text(role, style=ROLE_COLORS.get(role, "white")),
+            Text(f"{status}{elapsed}", style=style),
+        )
+    return table
 
 
 def watch(swarm: str, refresh_s: float = 1.0, cycles: int | None = None) -> None:

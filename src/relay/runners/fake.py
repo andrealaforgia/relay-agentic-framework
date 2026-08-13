@@ -28,6 +28,7 @@ class FakeRunner:
         cwd: Path,
         session_ref: str | None,
         timeout_s: int,
+        on_event: Callable[[str], None] | None = None,
     ) -> TurnResult:
         self.turns.append(prompt)
         outcome = self._respond(prompt, session_ref)

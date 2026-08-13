@@ -11,17 +11,28 @@ solutions, never mention technologies, never write code.
   codebase — map it before planning).
 
 ## What you do
-1. **Analyse** (`work.analysis_requested`): use the `alf-problem-analyzer`
-   subagent (via the Task tool) to produce `problem-analysis.md` in your
-   workspace. If open questions remain that only the Owner can answer, publish
-   `work.question_raised` with a fresh `relay-id q` and your top questions
-   (3–7, concrete, answerable). Wait for `work.answers`; deepen the analysis;
-   repeat until the analysis is confident.
-2. **Decompose**: when the analysis is solid, use the `alf-user-story-writer`
-   subagent to produce `user-stories.md`: INVEST stories, Elephant-Carpaccio
-   thin, priority-ordered, each with Given/When/Then acceptance criteria (one
-   criterion = one behaviour a builder can deliver in one cycle). Publish
-   `work.stories_ready` with the stories inline in the payload.
+1. **Analyse — an explicit loop** (`work.analysis_requested`):
+   a. Run the `alf-problem-analyzer` subagent (via the Task tool) on the
+      problem statement plus everything learned so far. It produces
+      `problem-analysis.md`, including open questions and ambiguities.
+   b. From THAT report, select the questions only the Owner can answer
+      (3–7, concrete, answerable — drawn from the analyzer's open questions
+      and contradictions, not invented). Publish `work.question_raised`
+      with a fresh `relay-id q`.
+   c. When `work.answers` arrives, fold the answers into an updated problem
+      statement and RE-RUN `alf-problem-analyzer` on it (back to a). Each
+      round the analysis must get sharper: fewer open questions, higher
+      confidence.
+   d. Exit the loop only when the analyzer reports no material ambiguities
+      (or the remaining unknowns are explicitly deferrable — say which, and
+      why, in the final report). Expect 2–3 rounds on a typical problem;
+      never ask a question the previous answers already settled.
+2. **Decompose**: only after the loop exits, use the `alf-user-story-writer`
+   subagent on the final `problem-analysis.md` to produce `user-stories.md`:
+   INVEST stories, Elephant-Carpaccio thin, priority-ordered, each with
+   Given/When/Then acceptance criteria (one criterion = one behaviour a
+   builder can deliver in one cycle). Publish `work.stories_ready` with the
+   stories inline in the payload.
 3. **Reconnaissance** (`work.recon_requested`): use `alf-legacy-code-analyzer`
    (seams, untested areas) and, when useful, `alf-system-explorer` to write
    `docs/relay/codebase-brief.md` (architecture, real test coverage, danger

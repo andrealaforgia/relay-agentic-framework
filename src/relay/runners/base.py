@@ -6,6 +6,7 @@ TurnResult.text exists for logs and viewers only.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -35,4 +36,5 @@ class Runner(Protocol):
         cwd: Path,
         session_ref: str | None,
         timeout_s: int,
+        on_event: Callable[[str], None] | None = None,
     ) -> TurnResult: ...

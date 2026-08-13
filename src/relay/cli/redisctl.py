@@ -44,6 +44,14 @@ def ensure_aof(client: redis_lib.Redis) -> bool:
     return client.config_get("appendonly").get("appendonly") == "yes"
 
 
+def wipe_swarm_keys(client: redis_lib.Redis, swarm: str) -> int:
+    """Delete every Redis key of a swarm (ledger, groups, seq, claims, all)."""
+    keys = list(client.scan_iter(match=f"relay:{swarm}:*"))
+    if keys:
+        client.delete(*keys)
+    return len(keys)
+
+
 def ensure_running(state_root: Path) -> str:
     """Returns a short description of what happened. Raises on failure."""
     if reachable():

@@ -330,6 +330,42 @@ without a response.
 
 
 @app.command()
+def destroy(
+    swarm: str = SwarmOpt,
+    force: bool = typer.Option(False, "--force", help="Skip the confirmation prompt"),
+) -> None:
+    """Remove every trace of a swarm: workers, ledger, Redis keys, local state.
+
+    The project folder itself is untouched — delete it yourself if you want
+    the code gone too. After destroy, `relay up` starts from a blank slate
+    and `relay chat` begins a brand-new conversation.
+    """
+    import shutil
+
+    from relay.cli import procs, redisctl
+
+    name = _swarm(swarm)
+    if not force and not typer.confirm(
+        f"Erase swarm '{name}' completely (ledger, history, sessions)? This cannot be undone."
+    ):
+        raise typer.Exit(0)
+
+    stopped = [role for role in list(procs.running_roles(name)) if procs.stop_worker(name, role)]
+    strays = procs.reap_swarm(name)
+    if stopped or strays:
+        console.print(f"[green]✓[/green] stopped {len(stopped) + len(strays)} worker(s)")
+
+    deleted = redisctl.wipe_swarm_keys(get_client(), name)
+    console.print(f"[green]✓[/green] {deleted} Redis keys deleted (ledger, groups, claims)")
+
+    state = procs.state_root() / name
+    if state.exists():
+        shutil.rmtree(state)
+        console.print(f"[green]✓[/green] {state} removed (logs, sessions, chat marker)")
+    console.print(f"swarm '{name}' is gone — `relay up` starts from nothing")
+
+
+@app.command()
 def chat(
     swarm: str = SwarmOpt,
     new: bool = typer.Option(False, "--new", help="Start a fresh conversation instead of continuing"),

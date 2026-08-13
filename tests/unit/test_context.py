@@ -59,3 +59,21 @@ def test_config_lives_under_dot_relay_with_legacy_fallback(tmp_path: Path) -> No
     (legacy / "relay.toml").write_text('[swarm]\nname = "l"\n')
     assert config_path(legacy) == legacy / "relay.toml"
     assert swarm_name(legacy) == "l"
+
+
+def test_wipe_swarm_keys_only_touches_that_swarm() -> None:
+    import fakeredis
+
+    from relay.cli.redisctl import wipe_swarm_keys
+
+    client = fakeredis.FakeRedis(decode_responses=True)
+    client.set("relay:doomed:seq", 5)
+    client.xadd("relay:doomed:ledger", {"a": "b"})
+    client.set("relay:doomed:project", "/x")
+    client.set("relay:doomed-2:seq", 9)      # similar prefix, different swarm
+    client.set("relay:survivor:seq", 1)
+
+    assert wipe_swarm_keys(client, "doomed") == 3
+    assert client.keys("relay:doomed:*") == []
+    assert client.get("relay:doomed-2:seq") == "9"
+    assert client.get("relay:survivor:seq") == "1"

@@ -1,15 +1,19 @@
-"""relay watch — the swarm in one terminal.
+"""relay watch — mission control in one terminal.
 
-Top: per-assistant liveness and the iteration's behaviour board (done /
-in-flight / pending / blocked), computed with the same projection the
-coordinator uses. Bottom: the live event feed. Read-only: watching a swarm
-can never affect it.
+Top: per-assistant liveness and live activity (what each one is doing right
+now, and for how long), plus the behaviour board computed with the same
+projection the coordinator uses. Bottom: one merged feed — ledger events
+(bold) interleaved with every worker's streamed activity (dim, role-colored):
+each tool call, each turn, as it happens. Read-only: watching a swarm can
+never affect it.
 """
 
 from __future__ import annotations
 
+import json as _json
 import time
 from collections import deque
+from pathlib import Path
 from typing import cast
 
 import redis
@@ -20,6 +24,7 @@ from rich.text import Text
 
 from relay.bus.client import get_client
 from relay.bus.keys import ledger_key, presence_key
+from relay.cli import procs
 from relay.contract.envelope import Envelope
 from relay.coordinator.model import BehaviourState, SwarmState
 from relay.coordinator.projection import apply
@@ -35,18 +40,59 @@ STATE_ICONS = {
     BehaviourState.BLOCKED: ("✗", "red"),
     BehaviourState.PLANNED: ("·", "bright_black"),
 }
+FEED_DEPTH = 26
 
 
-def _feed_line(env: Envelope) -> Text:
+class LogTails:
+    """Incrementally follow every worker log; yields (role, line) as written."""
+
+    def __init__(self, swarm: str) -> None:
+        self.swarm = swarm
+        self.offsets: dict[Path, int] = {}
+
+    def read_new(self) -> list[tuple[str, str]]:
+        lines: list[tuple[str, str]] = []
+        log_dir = procs.log_dir(self.swarm)
+        if not log_dir.is_dir():
+            return lines
+        for log in sorted(log_dir.glob("*.log")):
+            size = log.stat().st_size
+            if log not in self.offsets:
+                self.offsets[log] = size  # attach at the end: live from now on
+                continue
+            if size < self.offsets[log]:
+                self.offsets[log] = 0  # truncated/rotated
+            if size == self.offsets[log]:
+                continue
+            with log.open() as f:
+                f.seek(self.offsets[log])
+                chunk = f.read()
+                self.offsets[log] = f.tell()
+            for line in chunk.splitlines():
+                line = line.strip()
+                if line:
+                    lines.append((log.stem, line))
+        return lines
+
+
+def _event_line(env: Envelope) -> Text:
     line = Text()
     line.append(f"{env.seq or '':>4} ", style="bright_black")
-    line.append(env.from_role, style=ROLE_COLORS.get(env.from_role, "white"))
-    line.append(" → ")
-    line.append(env.to_role, style=ROLE_COLORS.get(env.to_role, "white"))
+    line.append(env.from_role, style=f"bold {ROLE_COLORS.get(env.from_role, 'white')}")
+    line.append(" → ", style="bold")
+    line.append(env.to_role, style=f"bold {ROLE_COLORS.get(env.to_role, 'white')}")
     line.append(f"  {env.type}", style="bold")
     ref = env.behaviour_id or env.story_id or env.iteration_id or ""
     if ref:
         line.append(f"  [{ref}]", style="bright_black")
+    return line
+
+
+def _activity_line(role: str, text: str) -> Text:
+    line = Text()
+    line.append("     ")
+    line.append(f"{role} ▏", style=ROLE_COLORS.get(role, "white"))
+    line.append(f" {text[:150]}", style="dim")
     return line
 
 
@@ -69,9 +115,6 @@ def _board(state: SwarmState) -> Table:
 
 def _presence(client: redis.Redis, swarm: str) -> Table:
     """Per-assistant liveness AND live activity — the 'is it stuck?' answer."""
-    import json as _json
-    import time as _time
-
     table = Table(show_header=False, box=None, pad_edge=False)
     table.add_column("assistant", width=14)
     table.add_column("activity", ratio=1)
@@ -88,7 +131,7 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
             info = _json.loads(str(raw))
             if isinstance(info, dict):  # older writers stored a bare pid
                 status = str(info.get("status", "alive"))
-                elapsed = f" ({int(_time.time() - float(info.get('since', _time.time())))}s)"
+                elapsed = f" ({int(time.time() - float(info.get('since', time.time())))}s)"
         except (ValueError, TypeError):
             pass
         style = "bright_black" if status == "idle" else "bold yellow"
@@ -99,12 +142,13 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
     return table
 
 
-def watch(swarm: str, refresh_s: float = 1.0, cycles: int | None = None) -> None:
+def watch(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None:
     client = get_client()
     console = Console()
-    feed: deque[Text] = deque(maxlen=18)
+    feed: deque[Text] = deque(maxlen=FEED_DEPTH)
     seen = 0
     state = SwarmState()
+    tails = LogTails(swarm)
 
     with Live(console=console, refresh_per_second=4) as live:
         n = 0
@@ -112,13 +156,21 @@ def watch(swarm: str, refresh_s: float = 1.0, cycles: int | None = None) -> None
             entries = cast(
                 "list[tuple[str, dict[str, str]]]", client.xrange(ledger_key(swarm))
             )
+            new_events = []
             for _sid, fields in entries[seen:]:
                 env = Envelope.try_from_fields(fields)
                 if env is None:
                     continue  # foreign writer on this stream — the audit reports these
                 apply(state, env)
-                feed.append(_feed_line(env))
+                new_events.append((_sid, _event_line(env)))
             seen = len(entries)
+
+            # interleave: worker activity streams in between the ledger events
+            for role, raw_line in tails.read_new():
+                feed.append(_activity_line(role, raw_line))
+            for _sid, event_text in new_events:
+                feed.append(event_text)
+
             live.update(Group(_presence(client, swarm), _board(state), *feed))
             time.sleep(refresh_s)
             n += 1

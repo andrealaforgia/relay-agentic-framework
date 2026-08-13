@@ -143,6 +143,8 @@ def up(
     swarm: str = SwarmOpt,
     roles: str = typer.Option("", "--roles", help="Comma-separated subset (default: all Phase-1 roles)"),
     tmux: bool = typer.Option(False, "--tmux", help="Open a tmux session: watch + per-role tails"),
+    windows: bool = typer.Option(False, "--windows",
+                                 help="Open one Terminal window per assistant (live activity) + watch"),
 ) -> None:
     """Start the swarm for a project (initializing it on first run)."""
     from relay.cli import procs, redisctl
@@ -183,6 +185,28 @@ def up(
     console.print("  relay watch    (terminal 2 — live board)")
     if tmux:
         _open_tmux(name, selected)
+    if windows:
+        _open_windows(name, selected)
+
+
+def _open_windows(name: str, roles: list[str]) -> None:
+    """One read-only Terminal window per assistant + one mission-control watch.
+
+    Viewers only: they follow logs and the stream, deliver nothing, and can be
+    closed at any time without affecting the swarm.
+    """
+    import platform
+
+    if platform.system() != "Darwin":
+        console.print("[yellow]•[/yellow] --windows is macOS Terminal.app only — use --tmux here")
+        return
+    commands = [f"relay watch --swarm {name}"] + [f"relay tail {r} --swarm {name}" for r in roles]
+    for command in commands:
+        sp.run(["osascript", "-e",
+                f'tell application "Terminal" to do script "{command}"'],
+               capture_output=True)
+    sp.run(["osascript", "-e", 'tell application "Terminal" to activate'], capture_output=True)
+    console.print(f"[green]✓[/green] {len(commands)} Terminal windows opened (read-only viewers)")
 
 
 def _open_tmux(name: str, roles: list[str]) -> None:

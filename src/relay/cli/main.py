@@ -28,7 +28,9 @@ from relay.ledger.export import export_jsonl
 app = typer.Typer(no_args_is_help=True, help="Relay Agentic Framework")
 contract_app = typer.Typer(no_args_is_help=True, help="Contract tooling")
 app.add_typer(contract_app, name="contract")
-console = Console()
+# highlight=False: no auto-colorized digits/strings — output stays grep-able
+# and identical in terminals, pipes, and tests; explicit markup still renders
+console = Console(highlight=False)
 
 SwarmOpt = typer.Option(None, "--swarm", help="Swarm name (default: the enclosing project's)")
 

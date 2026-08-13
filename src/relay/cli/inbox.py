@@ -78,7 +78,7 @@ def _render(messages: list[Envelope], swarm: str) -> str:
 
 def _problem_already_stated(client: redis.Redis, swarm: str) -> bool:
     for _sid, env in _scan(client, swarm):
-        if env.type == "chat.problem":
+        if env.type == "problem.stated":
             return True
     return False
 
@@ -109,7 +109,7 @@ def main() -> int:
             prompt = ""
         if prompt and not prompt.startswith("/"):
             publisher = Publisher(client, ContractValidator(load_contract()), args.swarm)
-            type_ = "chat.feedback" if _problem_already_stated(client, args.swarm) else "chat.problem"
+            type_ = "feedback.given" if _problem_already_stated(client, args.swarm) else "problem.stated"
             try:
                 publisher.send("owner", "interpreter", type_, {"text": prompt[:4000]})
             except ContractError:

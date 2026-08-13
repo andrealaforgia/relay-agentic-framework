@@ -75,7 +75,7 @@ def _send(argv: list[str]) -> int:
 def test_send_audit_status_export_round_trip(tmp_path: Path, capsys) -> None:
     rc = _send([
         "--swarm", "clitest", "--from", "owner", "--to", "interpreter",
-        "--type", "chat.problem", "--payload", json.dumps({"text": "a problem"}),
+        "--type", "problem.stated", "--payload", json.dumps({"text": "a problem"}),
     ])
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
@@ -92,7 +92,7 @@ def test_send_audit_status_export_round_trip(tmp_path: Path, capsys) -> None:
     out_file = tmp_path / "ledger.jsonl"
     result = runner.invoke(app, ["export", "--swarm", "clitest", "--out", str(out_file)])
     assert result.exit_code == 0
-    assert json.loads(out_file.read_text().strip())["type"] == "chat.problem"
+    assert json.loads(out_file.read_text().strip())["type"] == "problem.stated"
 
     result = runner.invoke(app, ["doctor", "--swarm", "clitest"])
     assert result.exit_code == 0, result.output
@@ -101,7 +101,7 @@ def test_send_audit_status_export_round_trip(tmp_path: Path, capsys) -> None:
 def test_send_rejects_off_contract_loudly(capsys) -> None:
     rc = _send([
         "--swarm", "clitest", "--from", "builder", "--to", "owner",
-        "--type", "chat.result", "--payload", json.dumps({"text": "hi"}),
+        "--type", "update.shared", "--payload", json.dumps({"text": "hi"}),
     ])
     assert rc == 1
     assert "topology violation" in capsys.readouterr().err

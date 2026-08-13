@@ -72,7 +72,7 @@ def audit_ledger(client: redis.Redis, validator: ContractValidator, swarm: str) 
         except ContractError as e:
             finding(env, stream_id, "off_contract", str(e))
 
-        if env.type == "system.contract_upgraded":
+        if env.type == "contract.upgraded":
             contract_hashes_upgraded.add(str(env.payload.get("old_hash")))
         if env.contract_hash not in contract_hashes_upgraded:
             finding(env, stream_id, "contract_drift",

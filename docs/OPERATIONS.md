@@ -64,7 +64,7 @@ consumer's pending work and continues. Nothing is reassigned by hand.
 
 - No timeout ever auto-approves; human gates never expire (fail closed).
 - Nothing is dropped silently: off-contract input and give-ups land in the
-  DLQ **and** as `system.dlq_routed` on the ledger.
+  DLQ **and** as `message.quarantined` on the ledger.
 - The audit (`relay audit`) re-validates every entry: it proves the ledger
   could only have been produced by a correctly-enforcing publisher — or
   shows exactly where it wasn't.

@@ -98,39 +98,39 @@ defs:
 # -----------------------------------------------------------------------------
 edges:
   chat:
-    owner>interpreter: [chat.problem, chat.answer, chat.decision, chat.feedback, chat.instruction]
-    interpreter>owner: [chat.question, chat.roadmap_proposed, chat.checkpoint, chat.pr_link, chat.result]
-    coordinator>owner: [chat.progress]     # machine-generated status; conversation stays interpreter-only
+    owner>interpreter: [problem.stated, answers.given, decision.made, feedback.given, instruction.given]
+    interpreter>owner: [questions.asked, roadmap.proposed, checkpoint.reached, pr.announced, update.shared]
+    coordinator>owner: [progress.reported]     # machine-generated status; conversation stays interpreter-only
   plan:
-    interpreter>coordinator: [plan.roadmap_committed, plan.iteration_started, plan.iteration_aborted, plan.pr_approved]
-    coordinator>interpreter: [plan.story_done, plan.iteration_ready, plan.stall_alert, plan.roadmap_rejected, plan.owner_decision_needed, plan.pr_opened]
+    interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved]
+    coordinator>interpreter: [story.completed, iteration.finished, stall.detected, roadmap.rejected, decision.requested, pr.opened]
   work:
-    interpreter>analyst: [work.analysis_requested, work.answers]
-    analyst>interpreter: [work.question_raised, work.recon_report, work.stories_ready]
-    coordinator>analyst: [work.recon_requested]
-    coordinator>specifier: [work.spec_requested, work.judgement_requested]
-    specifier>coordinator: [work.spec_ready, work.acceptance_verdict, work.error]
-    coordinator>builder: [work.build_requested, work.rework_requested]
-    builder>coordinator: [work.built, work.error]
+    interpreter>analyst: [analysis.requested, answers.relayed]
+    analyst>interpreter: [questions.raised, recon.completed, stories.written]
+    coordinator>analyst: [recon.requested]
+    coordinator>specifier: [spec.requested, judgement.requested]
+    specifier>coordinator: [spec.written, acceptance.judged, error.raised]
+    coordinator>builder: [build.requested, rework.requested]
+    builder>coordinator: [behaviour.built, error.raised]
   gate:
     coordinator>reviewer: [gate.requested]
     coordinator>qa: [gate.requested]
     coordinator>security: [gate.requested]
-    reviewer>coordinator: [gate.verdict]
-    qa>coordinator: [gate.verdict]
-    security>coordinator: [gate.verdict]
+    reviewer>coordinator: [gate.judged]
+    qa>coordinator: [gate.judged]
+    security>coordinator: [gate.judged]
   run:
     coordinator>toolgate: [run.requested]
     toolgate>coordinator: [run.completed]
   control:
-    sentinel>*assistant: [control.correction]
-    "*assistant>sentinel": [control.ack]
-    sentinel>interpreter: [sentinel.escalation]
-    coordinator>*assistant: [control.pause, control.resume]
+    sentinel>*assistant: [correction.issued]
+    "*assistant>sentinel": [correction.acknowledged]
+    sentinel>interpreter: [escalation.raised]
+    coordinator>*assistant: [pause.ordered, resume.ordered]
   system:
-    "*>system": [system.worker_started, system.worker_stopped, system.worker_error,
-                 system.dlq_routed, system.gap_detected, system.runner_session_started,
-                 system.contract_upgraded]
+    "*>system": [worker.started, worker.stopped, worker.failed,
+                 message.quarantined, gap.detected, session.started,
+                 contract.upgraded]
 
 # -----------------------------------------------------------------------------
 # Message types. One entry per type; payload_schema is JSON Schema (2020-12).
@@ -139,7 +139,7 @@ edges:
 message_types:
 
   # ── chat ────────────────────────────────────────────────────────────────────
-  chat.problem:
+  problem.stated:
     payload_schema:
       type: object
       required: [text]
@@ -147,7 +147,7 @@ message_types:
       properties:
         text: { type: string, minLength: 1 }
 
-  chat.question:
+  questions.asked:
     payload_schema:
       type: object
       required: [question_id, questions]
@@ -166,7 +166,7 @@ message_types:
               options: { type: array, items: { type: string } }
               recommended: { type: string }
 
-  chat.answer:
+  answers.given:
     payload_schema:
       type: object
       required: [question_id, answers]
@@ -175,7 +175,7 @@ message_types:
         question_id: { $ref: "#/$defs/QuestionId" }
         answers: { type: array, minItems: 1, items: { type: string } }
 
-  chat.decision:
+  decision.made:
     payload_schema:
       type: object
       required: [gate_id, decision]
@@ -185,7 +185,7 @@ message_types:
         decision: { type: string, enum: [approve, reject] }
         comment: { type: string }
 
-  chat.feedback:
+  feedback.given:
     payload_schema:
       type: object
       required: [text]
@@ -194,7 +194,7 @@ message_types:
         text: { type: string, minLength: 1 }
         subject_id: { type: string }
 
-  chat.instruction:
+  instruction.given:
     payload_schema:
       type: object
       required: [text]
@@ -202,7 +202,7 @@ message_types:
       properties:
         text: { type: string, minLength: 1 }
 
-  chat.roadmap_proposed:
+  roadmap.proposed:
     payload_schema:
       type: object
       required: [roadmap, narrative, gate_id]
@@ -210,9 +210,9 @@ message_types:
       properties:
         roadmap: { $ref: "#/$defs/Roadmap" }
         narrative: { type: string }
-        gate_id: { $ref: "#/$defs/GateId" }   # the Owner's chat.decision cites this
+        gate_id: { $ref: "#/$defs/GateId" }   # the Owner's decision.made cites this
 
-  chat.checkpoint:
+  checkpoint.reached:
     payload_schema:
       type: object
       required: [kind, subject_id, gate_id, summary]
@@ -223,7 +223,7 @@ message_types:
         gate_id: { $ref: "#/$defs/GateId" }
         summary: { type: string }
 
-  chat.pr_link:
+  pr.announced:
     payload_schema:
       type: object
       required: [iteration_id, pr_url]
@@ -232,7 +232,7 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         pr_url: { type: string, pattern: "^https://" }
 
-  chat.result:
+  update.shared:
     payload_schema:
       type: object
       required: [text]
@@ -240,7 +240,7 @@ message_types:
       properties:
         text: { type: string }
 
-  chat.progress:
+  progress.reported:
     payload_schema:
       type: object
       required: [iteration_id, behaviours_done, behaviours_total]
@@ -253,7 +253,7 @@ message_types:
         blockers: { type: array, items: { type: string } }
 
   # ── plan ────────────────────────────────────────────────────────────────────
-  plan.roadmap_committed:
+  roadmap.committed:
     payload_schema:
       type: object
       required: [roadmap, intake]
@@ -267,7 +267,7 @@ message_types:
           properties:
             mode: { type: string, enum: [greenfield, legacy] }
 
-  plan.iteration_started:
+  iteration.started:
     payload_schema:
       type: object
       required: [iteration_id]
@@ -275,7 +275,7 @@ message_types:
       properties:
         iteration_id: { $ref: "#/$defs/IterationId" }
 
-  plan.iteration_aborted:
+  iteration.aborted:
     payload_schema:
       type: object
       required: [iteration_id, reason]
@@ -284,7 +284,7 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         reason: { type: string }
 
-  plan.pr_approved:
+  pr.approved:
     payload_schema:
       type: object
       required: [iteration_id, gate_id]
@@ -293,7 +293,7 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         gate_id: { $ref: "#/$defs/GateId" }
 
-  plan.story_done:
+  story.completed:
     payload_schema:
       type: object
       required: [story_id, summary]
@@ -302,7 +302,7 @@ message_types:
         story_id: { $ref: "#/$defs/StoryId" }
         summary: { type: string }
 
-  plan.iteration_ready:
+  iteration.finished:
     payload_schema:
       type: object
       required: [iteration_id, summary]
@@ -311,7 +311,7 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         summary: { type: string }
 
-  plan.stall_alert:
+  stall.detected:
     payload_schema:
       type: object
       required: [subject_id, waiting_on, since_ts]
@@ -321,7 +321,7 @@ message_types:
         waiting_on: { $ref: "#/$defs/Role" }
         since_ts: { type: string, format: date-time }
 
-  plan.roadmap_rejected:
+  roadmap.rejected:
     payload_schema:
       type: object
       required: [reasons]
@@ -329,7 +329,7 @@ message_types:
       properties:
         reasons: { type: array, minItems: 1, items: { type: string } }
 
-  plan.pr_opened:
+  pr.opened:
     payload_schema:
       type: object
       required: [iteration_id, pr_url]
@@ -338,7 +338,7 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         pr_url: { type: string, pattern: "^https://" }
 
-  plan.owner_decision_needed:
+  decision.requested:
     payload_schema:
       type: object
       required: [gate_id, subject_id, reason]
@@ -350,7 +350,7 @@ message_types:
         options: { type: array, items: { type: string } }
 
   # ── work ────────────────────────────────────────────────────────────────────
-  work.analysis_requested:
+  analysis.requested:
     payload_schema:
       type: object
       required: [problem]
@@ -359,7 +359,7 @@ message_types:
         problem: { type: string, minLength: 1 }
         codebase_brief_path: { type: string }
 
-  work.question_raised:
+  questions.raised:
     payload_schema:
       type: object
       required: [question_id, questions]
@@ -368,7 +368,7 @@ message_types:
         question_id: { $ref: "#/$defs/QuestionId" }
         questions: { type: array, minItems: 1, items: { type: string } }
 
-  work.answers:
+  answers.relayed:
     payload_schema:
       type: object
       required: [question_id, answers]
@@ -377,7 +377,7 @@ message_types:
         question_id: { $ref: "#/$defs/QuestionId" }
         answers: { type: array, minItems: 1, items: { type: string } }
 
-  work.recon_requested:
+  recon.requested:
     payload_schema:
       type: object
       required: [commit_sha]
@@ -385,7 +385,7 @@ message_types:
       properties:
         commit_sha: { $ref: "#/$defs/GitSha" }
 
-  work.recon_report:
+  recon.completed:
     payload_schema:
       type: object
       required: [brief_path, risk_areas]
@@ -396,7 +396,7 @@ message_types:
         risk_areas: { type: array, items: { type: string } }
         coverage_summary: { type: string }
 
-  work.stories_ready:
+  stories.written:
     payload_schema:
       type: object
       required: [stories]
@@ -417,7 +417,7 @@ message_types:
               risk: { type: string, enum: [low, medium, high] }
               size: { type: string, enum: [XS, S, M, L] }
 
-  work.spec_requested:
+  spec.requested:
     payload_schema:
       type: object
       required: [behaviour_id, iteration_id, ac_text, kind, base_sha]
@@ -430,7 +430,7 @@ message_types:
         kind: { $ref: "#/$defs/BehaviourKind" }
         base_sha: { $ref: "#/$defs/GitSha" }
 
-  work.spec_ready:
+  spec.written:
     payload_schema:
       type: object
       required: [behaviour_id, test_paths, commit_sha, touches]
@@ -441,7 +441,7 @@ message_types:
         commit_sha: { $ref: "#/$defs/GitSha" }
         touches: { type: array, items: { type: string } }
 
-  work.judgement_requested:
+  judgement.requested:
     payload_schema:
       type: object
       required: [behaviour_id, commit_sha, run_id]
@@ -451,7 +451,7 @@ message_types:
         commit_sha: { $ref: "#/$defs/GitSha" }
         run_id: { $ref: "#/$defs/RunId" }
 
-  work.acceptance_verdict:
+  acceptance.judged:
     payload_schema:
       type: object
       required: [behaviour_id, verdict, run_id]
@@ -462,7 +462,7 @@ message_types:
         run_id: { $ref: "#/$defs/RunId" }
         reason: { type: string }
 
-  work.build_requested:
+  build.requested:
     payload_schema:
       type: object
       required: [behaviour_id, spec_commit_sha, test_paths]
@@ -473,7 +473,7 @@ message_types:
         test_paths: { type: array, minItems: 1, items: { type: string } }
         instructions: { type: array, items: { type: string } }
 
-  work.rework_requested:
+  rework.requested:
     payload_schema:
       type: object
       required: [behaviour_id, attempt, findings]
@@ -483,7 +483,7 @@ message_types:
         attempt: { type: integer, minimum: 2 }
         findings: { type: array, minItems: 1, items: { $ref: "#/$defs/Finding" } }
 
-  work.built:
+  behaviour.built:
     payload_schema:
       type: object
       required: [behaviour_id, story_id, iteration_id, commit_sha, attempt]
@@ -497,7 +497,7 @@ message_types:
         attempt: { type: integer, minimum: 1 }
         summary: { type: string, maxLength: 2000 }
 
-  work.error:
+  error.raised:
     payload_schema:
       type: object
       required: [kind, detail]
@@ -522,7 +522,7 @@ message_types:
         base_sha: { $ref: "#/$defs/GitSha" }
         run_id: { $ref: "#/$defs/RunId" }    # e.g. the mutation tool run qa must judge
 
-  gate.verdict:
+  gate.judged:
     payload_schema:
       type: object
       required: [gate_id, verdict, findings]
@@ -567,7 +567,7 @@ message_types:
   # The correction schema is deliberately incapable of carrying work content:
   # an enum remedy plus a 500-char note. The control plane cannot become a
   # covert work channel.
-  control.correction:
+  correction.issued:
     payload_schema:
       type: object
       required: [finding_id, subject_event_id, rule_id, required_remedy]
@@ -579,7 +579,7 @@ message_types:
         required_remedy: { type: string, enum: [resend_on_contract, retract, acknowledge_rule] }
         note: { type: string, maxLength: 500 }
 
-  control.ack:
+  correction.acknowledged:
     payload_schema:
       type: object
       required: [finding_id]
@@ -587,7 +587,7 @@ message_types:
       properties:
         finding_id: { $ref: "#/$defs/FindingId" }
 
-  sentinel.escalation:
+  escalation.raised:
     payload_schema:
       type: object
       required: [role, finding_ids, reason]
@@ -597,7 +597,7 @@ message_types:
         finding_ids: { type: array, minItems: 1, items: { $ref: "#/$defs/FindingId" } }
         reason: { type: string }
 
-  control.pause:
+  pause.ordered:
     payload_schema:
       type: object
       required: [role, reason]
@@ -606,7 +606,7 @@ message_types:
         role: { $ref: "#/$defs/Role" }
         reason: { type: string }
 
-  control.resume:
+  resume.ordered:
     payload_schema:
       type: object
       required: [role]
@@ -616,7 +616,7 @@ message_types:
         reason: { type: string }
 
   # ── system ──────────────────────────────────────────────────────────────────
-  system.worker_started:
+  worker.started:
     payload_schema:
       type: object
       required: [role, host, pid, worker_version, contract_hash]
@@ -628,7 +628,7 @@ message_types:
         worker_version: { type: string }
         contract_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
 
-  system.worker_stopped:
+  worker.stopped:
     payload_schema:
       type: object
       required: [role, host, pid]
@@ -638,7 +638,7 @@ message_types:
         host: { type: string }
         pid: { type: integer, minimum: 1 }
 
-  system.worker_error:
+  worker.failed:
     payload_schema:
       type: object
       required: [role, kind, detail]
@@ -648,7 +648,7 @@ message_types:
         kind: { type: string, enum: [snapshot_mismatch, contract_drift, runner_failure, redis_failure, other] }
         detail: { type: string }
 
-  system.dlq_routed:
+  message.quarantined:
     payload_schema:
       type: object
       required: [reason]
@@ -658,7 +658,7 @@ message_types:
         reason: { type: string, enum: [off_contract, delivery_cap_exceeded, contract_drift, unparseable] }
         detail: { type: string }
 
-  system.gap_detected:
+  gap.detected:
     payload_schema:
       type: object
       required: [expected_seq, observed_seq]
@@ -667,7 +667,7 @@ message_types:
         expected_seq: { type: integer, minimum: 1 }
         observed_seq: { type: integer, minimum: 1 }
 
-  system.runner_session_started:
+  session.started:
     payload_schema:
       type: object
       required: [role, session_ref]
@@ -676,7 +676,7 @@ message_types:
         role: { $ref: "#/$defs/Role" }
         session_ref: { type: string }
 
-  system.contract_upgraded:
+  contract.upgraded:
     payload_schema:
       type: object
       required: [old_hash, new_hash]

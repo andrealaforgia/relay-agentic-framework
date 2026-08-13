@@ -3,7 +3,7 @@
 Two layers, cheapest first:
   1. MECHANICAL (code, deterministic): sequence gaps; verdicts citing run ids
      that never completed on the ledger; gate verdicts for gates never
-     requested. These publish control.correction without any model.
+     requested. These publish correction.issued without any model.
   2. SEMANTIC (LLM, batched): the provenance test — did the sender choose
      that content, or did the problem dictate it? A builder re-interpreting
      requirements, a reviewer smuggling design decisions into findings, an
@@ -103,17 +103,17 @@ class SentinelWorker(Worker):
             self.completed_runs.add(str(env.payload.get("run_id")))
         elif env.type == "gate.requested":
             self.requested_gates.add(str(env.payload.get("gate_id")))
-        elif env.type == "control.correction" and env.from_role == "sentinel":
+        elif env.type == "correction.issued" and env.from_role == "sentinel":
             self.corrected.add((str(env.payload.get("subject_event_id")),
                                 str(env.payload.get("rule_id"))))
             self.corrections_out[str(env.payload.get("finding_id"))] = CorrectionRecord(
                 role=env.to_role, ts=time.time()
             )
-        elif env.type == "control.ack":
+        elif env.type == "correction.acknowledged":
             finding = self.corrections_out.get(str(env.payload.get("finding_id")))
             if finding:
                 finding.acked = True
-        elif env.type == "sentinel.escalation" and env.from_role == "sentinel":
+        elif env.type == "escalation.raised" and env.from_role == "sentinel":
             self.escalated_roles.add(str(env.payload.get("role")))
 
     # ── live processing ──────────────────────────────────────────────────────
@@ -140,17 +140,17 @@ class SentinelWorker(Worker):
     def _check_sequence(self, env: Envelope) -> None:
         if env.seq is not None and env.seq > self.expected_seq:
             self.publisher.send(
-                "sentinel", "system", "system.gap_detected",
+                "sentinel", "system", "gap.detected",
                 {"expected_seq": self.expected_seq, "observed_seq": env.seq},
             )
 
     def _check_mechanical(self, env: Envelope) -> None:
-        if env.type == "work.acceptance_verdict":
+        if env.type == "acceptance.judged":
             run_id = str(env.payload.get("run_id"))
             if run_id not in self.completed_runs:
                 self._correct(env, "evidence.run-not-on-ledger", "retract",
                               f"verdict cites {run_id}, but no such run.completed exists")
-        elif env.type == "gate.verdict":
+        elif env.type == "gate.judged":
             gate_id = str(env.payload.get("gate_id"))
             if gate_id not in self.requested_gates:
                 self._correct(env, "gate.never-requested", "retract",
@@ -161,7 +161,7 @@ class SentinelWorker(Worker):
             return
         finding_id = _new_finding_id()
         self.publisher.send(
-            "sentinel", env.from_role, "control.correction",
+            "sentinel", env.from_role, "correction.issued",
             {
                 "finding_id": finding_id,
                 "subject_event_id": env.event_id,
@@ -196,7 +196,7 @@ class SentinelWorker(Worker):
             f"{self.playbook}\n\n== Messages to audit ==\n{listing}\n\n"
             f"For each violation, publish ONE correction:\n"
             f"  relay-send --swarm {self.swarm} --from sentinel --to <culprit role> "
-            f"--type control.correction --reply-to <event_id> --payload "
+            f"--type correction.issued --reply-to <event_id> --payload "
             f"'{{\"finding_id\": \"'$(relay-id find)'\", \"subject_event_id\": \"<event_id>\", "
             f"\"rule_id\": \"<rule>\", \"required_remedy\": \"resend_on_contract|retract|"
             f"acknowledge_rule\", \"note\": \"<why, max 500 chars>\"}}'\n"
@@ -235,7 +235,7 @@ class SentinelWorker(Worker):
                        f"{int(ACK_TIMEOUT_S)}s" if unacked_overdue else "")
                 )
                 self.publisher.send(
-                    "sentinel", "interpreter", "sentinel.escalation",
+                    "sentinel", "interpreter", "escalation.raised",
                     {"role": role, "finding_ids": [fid for fid, _ in findings][:20],
                      "reason": reason},
                 )

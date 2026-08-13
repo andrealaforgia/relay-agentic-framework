@@ -78,16 +78,16 @@ class MiniSwarm:
 @pytest.fixture
 def swarm(client, publisher) -> MiniSwarm:
     mini = MiniSwarm(client, publisher)
-    publisher.send("interpreter", "coordinator", "plan.roadmap_committed",
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
                    {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
-    publisher.send("interpreter", "coordinator", "plan.iteration_started", {"iteration_id": "I1"})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
     mini.pump()
     return mini
 
 
 def _drive_behaviour_to_done(swarm: MiniSwarm, bid: str) -> None:
     p = swarm.publisher
-    p.send("specifier", "coordinator", "work.spec_ready",
+    p.send("specifier", "coordinator", "spec.written",
            {"behaviour_id": bid, "test_paths": [f"tests/acceptance/test_{bid.lower().replace('.', '_')}.py"],
             "commit_sha": SHA_SPEC, "touches": ["src/rooms/cli.py"]})
     swarm.pump()
@@ -97,7 +97,7 @@ def _drive_behaviour_to_done(swarm: MiniSwarm, bid: str) -> None:
             "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64})
     swarm.pump()
     story_id = swarm.behaviour(bid).story_id
-    p.send("builder", "coordinator", "work.built",
+    p.send("builder", "coordinator", "behaviour.built",
            {"behaviour_id": bid, "story_id": story_id, "iteration_id": "I1",
             "commit_sha": SHA_BUILD, "attempt": swarm.behaviour(bid).attempt})
     swarm.pump()
@@ -106,8 +106,8 @@ def _drive_behaviour_to_done(swarm: MiniSwarm, bid: str) -> None:
            {"run_id": green.payload["run_id"], "kind": "acceptance_test", "commit_sha": SHA_BUILD,
             "exit_code": 0, "duration_s": 1.0, "output_digest": "e" * 64})
     swarm.pump()
-    judgement = swarm.sent("work.judgement_requested")[-1]
-    p.send("specifier", "coordinator", "work.acceptance_verdict",
+    judgement = swarm.sent("judgement.requested")[-1]
+    p.send("specifier", "coordinator", "acceptance.judged",
            {"behaviour_id": bid, "verdict": "pass", "run_id": judgement.payload["run_id"]})
     swarm.pump()
 
@@ -121,16 +121,16 @@ def test_happy_path_through_iteration_ready(swarm: MiniSwarm) -> None:
     _drive_behaviour_to_done(swarm, "I1.S1.B1")
     assert swarm.behaviour("I1.S1.B1").state == BehaviourState.DONE
     # story completion announced, INT dispatched next
-    assert len(swarm.sent("plan.story_done")) == 1
+    assert len(swarm.sent("story.completed")) == 1
     assert swarm.behaviour("I1.INT").state == BehaviourState.SPEC_DISPATCHED
 
     _drive_behaviour_to_done(swarm, "I1.INT")
-    assert len(swarm.sent("plan.iteration_ready")) == 1
-    assert swarm.sent("chat.progress")[-1].payload["behaviours_done"] == 2
+    assert len(swarm.sent("iteration.finished")) == 1
+    assert swarm.sent("progress.reported")[-1].payload["behaviours_done"] == 2
 
 
 def test_red_verification_failure_returns_to_specifier(swarm: MiniSwarm) -> None:
-    swarm.publisher.send("specifier", "coordinator", "work.spec_ready",
+    swarm.publisher.send("specifier", "coordinator", "spec.written",
                          {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/t.py"],
                           "commit_sha": SHA_SPEC, "touches": []})
     swarm.pump()
@@ -142,13 +142,13 @@ def test_red_verification_failure_returns_to_specifier(swarm: MiniSwarm) -> None
                           "output_digest": "d" * 64})
     swarm.pump()
     assert swarm.behaviour("I1.S1.B1").state == BehaviourState.SPEC_DISPATCHED
-    assert len(swarm.sent("work.spec_requested")) == 2
-    assert len(swarm.sent("work.build_requested")) == 0  # build never dispatched on a green red
+    assert len(swarm.sent("spec.requested")) == 2
+    assert len(swarm.sent("build.requested")) == 0  # build never dispatched on a green red
 
 
 def test_at_failure_causes_rework_then_blocked_after_max_attempts(swarm: MiniSwarm) -> None:
     p = swarm.publisher
-    p.send("specifier", "coordinator", "work.spec_ready",
+    p.send("specifier", "coordinator", "spec.written",
            {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/t.py"], "commit_sha": SHA_SPEC,
             "touches": []})
     swarm.pump()
@@ -159,7 +159,7 @@ def test_at_failure_causes_rework_then_blocked_after_max_attempts(swarm: MiniSwa
     swarm.pump()
 
     for expected_attempt in (2, 3):  # two failing build->AT rounds
-        p.send("builder", "coordinator", "work.built",
+        p.send("builder", "coordinator", "behaviour.built",
                {"behaviour_id": "I1.S1.B1", "story_id": "I1.S1", "iteration_id": "I1",
                 "commit_sha": SHA_BUILD, "attempt": swarm.behaviour("I1.S1.B1").attempt})
         swarm.pump()
@@ -173,7 +173,7 @@ def test_at_failure_causes_rework_then_blocked_after_max_attempts(swarm: MiniSwa
         assert swarm.behaviour("I1.S1.B1").state == BehaviourState.BUILD_DISPATCHED
 
     # third failure exceeds max_attempts=3 -> blocked + owner decision, not another silent loop
-    p.send("builder", "coordinator", "work.built",
+    p.send("builder", "coordinator", "behaviour.built",
            {"behaviour_id": "I1.S1.B1", "story_id": "I1.S1", "iteration_id": "I1",
             "commit_sha": SHA_BUILD, "attempt": 3})
     swarm.pump()
@@ -183,14 +183,14 @@ def test_at_failure_causes_rework_then_blocked_after_max_attempts(swarm: MiniSwa
             "commit_sha": SHA_BUILD, "exit_code": 1, "duration_s": 0.1, "output_digest": "e" * 64})
     swarm.pump()
     assert swarm.behaviour("I1.S1.B1").state == BehaviourState.BLOCKED
-    assert len(swarm.sent("plan.owner_decision_needed")) == 1
+    assert len(swarm.sent("decision.requested")) == 1
 
 
 def test_replay_resume_never_double_dispatches(swarm: MiniSwarm, client, publisher) -> None:
     _drive_behaviour_to_done(swarm, "I1.S1.B1")
     before = {t: len(swarm.sent(t)) for t in
-              ("work.spec_requested", "work.build_requested", "run.requested",
-               "work.judgement_requested")}
+              ("spec.requested", "build.requested", "run.requested",
+               "judgement.requested")}
 
     # cold start: fresh dispatcher + state, full replay of the same ledger
     fresh = MiniSwarm(client, publisher)
@@ -212,9 +212,9 @@ def test_invalid_roadmap_rejected_in_code(client, publisher) -> None:
             }],
         }],
     }
-    publisher.send("interpreter", "coordinator", "plan.roadmap_committed",
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
                    {"roadmap": bad, "intake": {"mode": "greenfield"}})
     mini.pump()
-    assert len(mini.sent("plan.roadmap_rejected")) == 1
-    assert len(mini.sent("work.spec_requested")) == 0
+    assert len(mini.sent("roadmap.rejected")) == 1
+    assert len(mini.sent("spec.requested")) == 0
     assert mini.state.roadmap_committed is False

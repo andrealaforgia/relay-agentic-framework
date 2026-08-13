@@ -27,7 +27,7 @@ fine). Content the sender invented outside its realm is a violation.
   verdicts unsupported by the cited evidence.
 
 ## Severity and remedy
-For each real violation publish exactly one `control.correction` (the exact
+For each real violation publish exactly one `correction.issued` (the exact
 relay-send form is given with each audit batch):
 - `resend_on_contract` — the message's substance is fine but off-realm or
   off-contract in form; the author should restate it properly.

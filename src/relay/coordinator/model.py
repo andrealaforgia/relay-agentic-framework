@@ -80,7 +80,7 @@ class Story:
     iteration_id: str
     title: str
     behaviour_ids: list[str] = field(default_factory=list)
-    done_announced: bool = False        # plan.story_done seen on the ledger
+    done_announced: bool = False        # story.completed seen on the ledger
     mutation_run_id: str | None = None  # in-flight or judged mutation run
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     escalated: bool = False
@@ -106,12 +106,12 @@ class Iteration:
     story_ids: list[str] = field(default_factory=list)
     int_behaviour_id: str = ""
     started: bool = False
-    ready_announced: bool = False       # plan.iteration_ready seen on the ledger
+    ready_announced: bool = False       # iteration.finished seen on the ledger
     aborted: bool = False
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     escalated: bool = False
-    pr_approved: bool = False           # plan.pr_approved seen
-    pr_opened: bool = False             # plan.pr_opened seen
+    pr_approved: bool = False           # pr.approved seen
+    pr_opened: bool = False             # pr.opened seen
 
     def gates_passed(self) -> bool:
         return bool(self.pending_gates) and all(
@@ -139,7 +139,7 @@ class SwarmState:
     runs: dict[str, RunInfo] = field(default_factory=dict)
     # ordering as authored in the roadmap; INT behaviours appended last per iteration
     behaviour_order: list[str] = field(default_factory=list)
-    # last chat.progress announced, as (iteration_id, behaviours_done) — derived
+    # last progress.reported announced, as (iteration_id, behaviours_done) — derived
     # from the ledger so a restarted coordinator never re-announces
     last_progress: tuple[str, int] | None = None
 

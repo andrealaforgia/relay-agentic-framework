@@ -7,7 +7,7 @@ GROUP = group_name("coordinator")
 
 def _publish_problem(publisher, n=1):
     return [
-        publisher.send("owner", "interpreter", "chat.problem", {"text": f"p{i}"})
+        publisher.send("owner", "interpreter", "problem.stated", {"text": f"p{i}"})
         for i in range(n)
     ]
 
@@ -41,7 +41,7 @@ def test_autoclaim_steals_from_dead_consumer(client, publisher) -> None:
     groups.read_new(client, STREAM, GROUP, "dead-consumer", block_ms=1)  # never acks
     stolen = claims.autoclaim_stale(client, STREAM, GROUP, "standby", min_idle_ms=0)
     assert len(stolen) == 1
-    assert stolen[0].envelope.type == "chat.problem"
+    assert stolen[0].envelope.type == "problem.stated"
 
 
 def test_delivery_count_increases_on_reclaim(client, publisher) -> None:
@@ -71,4 +71,4 @@ def test_dlq_routing_writes_dlq_and_ledger_event(client, publisher) -> None:
     assert fields["original_event_id"] == "01J5AB3CDEF4GH5JK6MN7PQ8RS"
     # the audit trail records the routing as a first-class event
     events = client.xrange(STREAM)
-    assert any(f["type"] == "system.dlq_routed" for _i, f in events)
+    assert any(f["type"] == "message.quarantined" for _i, f in events)

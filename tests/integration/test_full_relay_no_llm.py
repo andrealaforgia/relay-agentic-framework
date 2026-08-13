@@ -67,50 +67,50 @@ class Fakes:
     # -- interpreter ----------------------------------------------------------
     def interpreter(self, prompt: str, _s: str | None) -> str:
         event_id, type_, payload = _trigger(prompt)
-        if type_ == "chat.problem":
-            self.pub.send("interpreter", "analyst", "work.analysis_requested",
+        if type_ == "problem.stated":
+            self.pub.send("interpreter", "analyst", "analysis.requested",
                           {"problem": payload["text"]}, in_reply_to=event_id)
-        elif type_ == "work.question_raised":
-            self.pub.send("interpreter", "owner", "chat.question",
+        elif type_ == "questions.raised":
+            self.pub.send("interpreter", "owner", "questions.asked",
                           {"question_id": payload["question_id"],
                            "questions": [{"text": q} for q in payload["questions"]]},
                           in_reply_to=event_id)
-        elif type_ == "chat.answer":
-            self.pub.send("interpreter", "analyst", "work.answers",
+        elif type_ == "answers.given":
+            self.pub.send("interpreter", "analyst", "answers.relayed",
                           {"question_id": payload["question_id"], "answers": payload["answers"]},
                           in_reply_to=event_id)
-        elif type_ == "work.stories_ready":
-            self.pub.send("interpreter", "owner", "chat.roadmap_proposed",
+        elif type_ == "stories.written":
+            self.pub.send("interpreter", "owner", "roadmap.proposed",
                           {"roadmap": ROADMAP, "narrative": "One iteration.", "gate_id": GATE_ID},
                           in_reply_to=event_id)
-        elif type_ == "chat.decision" and payload["gate_id"] == GATE_ID:
-            self.pub.send("interpreter", "coordinator", "plan.roadmap_committed",
+        elif type_ == "decision.made" and payload["gate_id"] == GATE_ID:
+            self.pub.send("interpreter", "coordinator", "roadmap.committed",
                           {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}},
                           in_reply_to=event_id)
-            self.pub.send("interpreter", "coordinator", "plan.iteration_started",
+            self.pub.send("interpreter", "coordinator", "iteration.started",
                           {"iteration_id": "I1"})
-        elif type_ == "plan.story_done":
-            self.pub.send("interpreter", "owner", "chat.result",
+        elif type_ == "story.completed":
+            self.pub.send("interpreter", "owner", "update.shared",
                           {"text": f"story {payload['story_id']} delivered"}, in_reply_to=event_id)
-        elif type_ == "plan.iteration_ready":
-            self.pub.send("interpreter", "owner", "chat.checkpoint",
+        elif type_ == "iteration.finished":
+            self.pub.send("interpreter", "owner", "checkpoint.reached",
                           {"kind": "iteration", "subject_id": payload["iteration_id"],
                            "gate_id": GATE_ID, "summary": payload["summary"]},
                           in_reply_to=event_id)
         else:  # anything unscripted still gets an on-contract reply
-            self.pub.send("interpreter", "owner", "chat.result",
+            self.pub.send("interpreter", "owner", "update.shared",
                           {"text": f"noted: {type_}"}, in_reply_to=event_id)
         return "ok"
 
     # -- analyst --------------------------------------------------------------
     def analyst(self, prompt: str, _s: str | None) -> str:
         event_id, type_, payload = _trigger(prompt)
-        if type_ == "work.analysis_requested":
-            self.pub.send("analyst", "interpreter", "work.question_raised",
+        if type_ == "analysis.requested":
+            self.pub.send("analyst", "interpreter", "questions.raised",
                           {"question_id": QID, "questions": ["Which calendar system?"]},
                           in_reply_to=event_id)
-        elif type_ == "work.answers":
-            self.pub.send("analyst", "interpreter", "work.stories_ready",
+        elif type_ == "answers.relayed":
+            self.pub.send("analyst", "interpreter", "stories.written",
                           {"stories": [{"title": "List free rooms", "narrative": "As a member...",
                                         "acceptance_criteria": ["free rooms are listed"],
                                         "priority": 1}]},
@@ -120,7 +120,7 @@ class Fakes:
     # -- specifier ------------------------------------------------------------
     def specifier(self, prompt: str, _s: str | None) -> str:
         event_id, type_, payload = _trigger(prompt)
-        if type_ == "work.spec_requested":
+        if type_ == "spec.requested":
             bid = payload["behaviour_id"]
             test_file = self.project / "tests" / "acceptance" / f"test_{bid.lower().replace('.', '_')}.py"
             test_file.parent.mkdir(parents=True, exist_ok=True)
@@ -131,14 +131,14 @@ class Fakes:
             test_file.write_text(body)
             _git(self.project, "add", "-A")
             _git(self.project, "commit", "-qm", f"[{bid}] acceptance test")
-            self.pub.send("specifier", "coordinator", "work.spec_ready",
+            self.pub.send("specifier", "coordinator", "spec.written",
                           {"behaviour_id": bid,
                            "test_paths": [str(test_file.relative_to(self.project))],
                            "commit_sha": _git(self.project, "rev-parse", "HEAD"),
                            "touches": ["rooms.py"]},
                           in_reply_to=event_id, behaviour_id=bid)
-        elif type_ == "work.judgement_requested":
-            self.pub.send("specifier", "coordinator", "work.acceptance_verdict",
+        elif type_ == "judgement.requested":
+            self.pub.send("specifier", "coordinator", "acceptance.judged",
                           {"behaviour_id": payload["behaviour_id"], "verdict": "pass",
                            "run_id": payload["run_id"], "reason": "AT green on the real surface"},
                           in_reply_to=event_id, behaviour_id=payload["behaviour_id"])
@@ -147,7 +147,7 @@ class Fakes:
     # -- builder --------------------------------------------------------------
     def builder(self, prompt: str, _s: str | None) -> str:
         event_id, type_, payload = _trigger(prompt)
-        if type_ in ("work.build_requested", "work.rework_requested"):
+        if type_ in ("build.requested", "rework.requested"):
             bid = payload["behaviour_id"]
             rooms = self.project / "rooms.py"
             existing = rooms.read_text() if rooms.exists() else ""
@@ -157,7 +157,7 @@ class Fakes:
                 rooms.write_text("def free():\n    return ['R2']\n")
             _git(self.project, "add", "-A")
             _git(self.project, "commit", "-qm", f"[{bid}] implement", "--allow-empty")
-            self.pub.send("builder", "coordinator", "work.built",
+            self.pub.send("builder", "coordinator", "behaviour.built",
                           {"behaviour_id": bid,
                            "story_id": None if bid.endswith(".INT") else "I1.S1",
                            "iteration_id": "I1",
@@ -230,7 +230,7 @@ def _types(client) -> list[str]:
 
 
 def _owner_kickoff(publisher) -> None:
-    publisher.send("owner", "interpreter", "chat.problem", {"text": "finding a free room is slow"})
+    publisher.send("owner", "interpreter", "problem.stated", {"text": "finding a free room is slow"})
 
 
 def test_full_engagement_no_llm(client, publisher, project, tmp_path, validator) -> None:
@@ -238,11 +238,11 @@ def test_full_engagement_no_llm(client, publisher, project, tmp_path, validator)
     _owner_kickoff(publisher)
     _pump(swarm)
     # Q&A round: the analyst asked, the interpreter relayed — answer as the owner
-    publisher.send("owner", "interpreter", "chat.answer",
+    publisher.send("owner", "interpreter", "answers.given",
                    {"question_id": QID, "answers": ["Google Calendar"]})
     _pump(swarm)
     # roadmap proposed — approve as the owner
-    publisher.send("owner", "interpreter", "chat.decision",
+    publisher.send("owner", "interpreter", "decision.made",
                    {"gate_id": GATE_ID, "decision": "approve"})
     _pump(swarm)
 
@@ -250,9 +250,9 @@ def test_full_engagement_no_llm(client, publisher, project, tmp_path, validator)
     assert state.behaviours["I1.S1.B1"].state == BehaviourState.DONE
     assert state.behaviours["I1.INT"].state == BehaviourState.DONE
     types = _types(client)
-    assert "plan.story_done" in types
-    assert "plan.iteration_ready" in types
-    assert "chat.checkpoint" in types
+    assert "story.completed" in types
+    assert "iteration.finished" in types
+    assert "checkpoint.reached" in types
     # red really ran red and green really ran green, via real pytest
     completions = [Envelope.from_fields(f) for _s, f in client.xrange(ledger_key("testswarm"))
                    if f["type"] == "run.completed"]
@@ -273,10 +273,10 @@ def test_crash_and_cold_restart_finishes_exactly(client, publisher, project, tmp
     first = _swarm(client, publisher, project, tmp_path, crash_specifier_once=True)
     _owner_kickoff(publisher)
     _pump(first, rounds=6)
-    publisher.send("owner", "interpreter", "chat.answer",
+    publisher.send("owner", "interpreter", "answers.given",
                    {"question_id": QID, "answers": ["Google Calendar"]})
     _pump(first, rounds=6)
-    publisher.send("owner", "interpreter", "chat.decision",
+    publisher.send("owner", "interpreter", "decision.made",
                    {"gate_id": GATE_ID, "decision": "approve"})
     _pump(first, rounds=3)  # short life: the swarm 'dies' mid-engagement
 
@@ -289,7 +289,7 @@ def test_crash_and_cold_restart_finishes_exactly(client, publisher, project, tmp
     assert state.behaviours["I1.INT"].state == BehaviourState.DONE
     # exactly one spec dispatch per behaviour: the restart redid nothing done
     spec_requests = [f for _s, f in client.xrange(ledger_key("testswarm"))
-                     if f["type"] == "work.spec_requested"]
+                     if f["type"] == "spec.requested"]
     by_behaviour: dict[str, int] = {}
     for f in spec_requests:
         bid = json.loads(f["payload"])["behaviour_id"]

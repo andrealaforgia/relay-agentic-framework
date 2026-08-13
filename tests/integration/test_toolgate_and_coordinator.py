@@ -113,23 +113,23 @@ ROADMAP = {
 
 def test_coordinator_loop_dispatches_and_creates_branch(client, publisher, project: Path) -> None:
     coordinator = Coordinator("testswarm", project, client=client)
-    publisher.send("interpreter", "coordinator", "plan.roadmap_committed",
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
                    {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
-    publisher.send("interpreter", "coordinator", "plan.iteration_started", {"iteration_id": "I1"})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
     coordinator.run_forever(block_ms=1, max_cycles=3)
 
     assert coordinator.state.behaviours["I1.S1.B1"].state == BehaviourState.SPEC_DISPATCHED
     # the iteration branch exists and is checked out — created by code, not by a model
     assert _git(project, "rev-parse", "--abbrev-ref", "HEAD") == "relay/testswarm/i1"
     types = [f["type"] for _s, f in client.xrange(ledger_key("testswarm"))]
-    assert "work.spec_requested" in types
+    assert "spec.requested" in types
 
 
 def test_coordinator_cold_restart_is_exact(client, publisher, project: Path) -> None:
     first = Coordinator("testswarm", project, client=client)
-    publisher.send("interpreter", "coordinator", "plan.roadmap_committed",
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
                    {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
-    publisher.send("interpreter", "coordinator", "plan.iteration_started", {"iteration_id": "I1"})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
     first.run_forever(block_ms=1, max_cycles=3)
     dispatched_before = [
         f["type"] for _s, f in client.xrange(ledger_key("testswarm"))

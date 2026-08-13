@@ -30,12 +30,12 @@ def _poison(client) -> str:
 
 def test_read_new_survives_poison(client, publisher) -> None:
     _poison(client)
-    publisher.send("owner", "interpreter", "chat.problem", {"text": "p"})
+    publisher.send("owner", "interpreter", "problem.stated", {"text": "p"})
     groups.ensure_group(client, STREAM, group_name("interpreter"))
     deliveries = groups.read_new(client, STREAM, group_name("interpreter"), "c1", block_ms=1)
     assert len(deliveries) == 2
     assert deliveries[0].envelope is None and deliveries[0].raw["type"] == "progress"
-    assert deliveries[1].envelope is not None and deliveries[1].envelope.type == "chat.problem"
+    assert deliveries[1].envelope is not None and deliveries[1].envelope.type == "problem.stated"
 
 
 def test_chain_worker_skips_and_acks_poison(client, publisher, tmp_path) -> None:
@@ -64,13 +64,13 @@ def test_coordinator_dead_letters_poison_once(client, publisher, tmp_path, proje
     coordinator.step(block_ms=1)
     assert dlq.dlq_depth(client, "testswarm") == 1
     types = [f["type"] for _s, f in client.xrange(STREAM)]
-    assert types.count("system.dlq_routed") == 1
+    assert types.count("message.quarantined") == 1
     coordinator.step(block_ms=1)  # consumes its own dlq_routed event; no re-routing
     assert dlq.dlq_depth(client, "testswarm") == 1
 
 
 def test_audit_reports_unparseable_instead_of_crashing(client, publisher, validator) -> None:
-    publisher.send("owner", "interpreter", "chat.problem", {"text": "p"})
+    publisher.send("owner", "interpreter", "problem.stated", {"text": "p"})
     _poison(client)
     report = audit_ledger(client, validator, "testswarm")
     assert report.entries == 2
@@ -79,7 +79,7 @@ def test_audit_reports_unparseable_instead_of_crashing(client, publisher, valida
 
 
 def test_export_keeps_raw_fidelity_and_import_skips_foreign(client, publisher, tmp_path) -> None:
-    publisher.send("owner", "interpreter", "chat.problem", {"text": "p"})
+    publisher.send("owner", "interpreter", "problem.stated", {"text": "p"})
     _poison(client)
     out = tmp_path / "ledger.jsonl"
     assert export_jsonl(client, "testswarm", out) == 2  # both entries exported

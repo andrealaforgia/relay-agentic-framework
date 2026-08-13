@@ -3,33 +3,33 @@
 # (b) every entry validates against its type's payload schema.
 # When you add a type, you must add an example — the test makes forgetting loud.
 
-chat.problem:
+problem.stated:
   text: "Team members waste time finding a free meeting room. I want a CLI that shows free rooms now."
 
-chat.question:
+questions.asked:
   question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   questions:
     - text: "Which calendar system holds the room bookings?"
       options: ["Google Calendar", "Microsoft 365", "Both"]
       recommended: "Google Calendar"
 
-chat.answer:
+answers.given:
   question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   answers: ["Google Calendar"]
 
-chat.decision:
+decision.made:
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   decision: "approve"
   comment: "Ship it."
 
-chat.feedback:
+feedback.given:
   text: "The room list should be sorted by floor."
   subject_id: "I1"
 
-chat.instruction:
+instruction.given:
   text: "From now on, prefer smaller stories."
 
-chat.roadmap_proposed:
+roadmap.proposed:
   narrative: "Two iterations: first see free rooms, then book them."
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   roadmap:
@@ -49,27 +49,27 @@ chat.roadmap_proposed:
               - id: "I1.S1.B1"
                 text: "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
 
-chat.checkpoint:
+checkpoint.reached:
   kind: "iteration"
   subject_id: "I1"
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   summary: "Iteration I1 complete: 3 behaviours done, all gates green. Continue, re-plan, or open a PR?"
 
-chat.pr_link:
+pr.announced:
   iteration_id: "I1"
   pr_url: "https://github.com/acme/rooms/pull/42"
 
-chat.result:
+update.shared:
   text: "The increment is ready: run `rooms free` to see free rooms."
 
-chat.progress:
+progress.reported:
   iteration_id: "I1"
   behaviours_done: 2
   behaviours_total: 4
   current: "I1.S2.B1"
   blockers: []
 
-plan.roadmap_committed:
+roadmap.committed:
   intake: { mode: "greenfield" }
   roadmap:
     iterations:
@@ -84,64 +84,64 @@ plan.roadmap_committed:
               - id: "I1.S1.B1"
                 text: "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
 
-plan.iteration_started:
+iteration.started:
   iteration_id: "I1"
 
-plan.iteration_aborted:
+iteration.aborted:
   iteration_id: "I1"
   reason: "Owner re-planned after checkpoint feedback."
 
-plan.pr_approved:
+pr.approved:
   iteration_id: "I1"
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
 
-plan.story_done:
+story.completed:
   story_id: "I1.S1"
   summary: "All behaviours accepted; mutation gate green (kill rate 94%)."
 
-plan.iteration_ready:
+iteration.finished:
   iteration_id: "I1"
   summary: "All stories done, INT behaviour green, security gate passed."
 
-plan.stall_alert:
+stall.detected:
   subject_id: "I1.S1.B1"
   waiting_on: "builder"
   since_ts: "2026-08-13T10:15:00Z"
 
-plan.roadmap_rejected:
+roadmap.rejected:
   reasons: ["Iteration I2 has no integration behaviour coverage: increment not demonstrable."]
 
-plan.pr_opened:
+pr.opened:
   iteration_id: "I1"
   pr_url: "https://github.com/acme/rooms/pull/42"
 
-plan.owner_decision_needed:
+decision.requested:
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   subject_id: "I1.S1.B1"
   reason: "Behaviour blocked after 3 attempts: review gate keeps failing on error handling."
   options: ["Relax the finding", "Re-scope the behaviour", "Stop the iteration"]
 
-work.analysis_requested:
+analysis.requested:
   problem: "Team members waste time finding a free meeting room."
 
-work.question_raised:
+questions.raised:
   question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   questions: ["Which calendar system holds the room bookings?"]
 
-work.answers:
+answers.relayed:
   question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   answers: ["Google Calendar"]
 
-work.recon_requested:
+recon.requested:
   commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
 
-work.recon_report:
+recon.completed:
   brief_path: "docs/relay/codebase-brief.md"
   hotspots: ["src/booking/engine.py"]
   risk_areas: ["src/booking/engine.py", "src/legacy/sync.py"]
   coverage_summary: "38% line coverage; booking engine untested."
 
-work.stories_ready:
+stories.written:
   stories:
     - title: "List free rooms"
       narrative: "As a team member, I want to list free rooms now, so I can grab one."
@@ -151,7 +151,7 @@ work.stories_ready:
       risk: "low"
       size: "S"
 
-work.spec_requested:
+spec.requested:
   behaviour_id: "I1.S1.B1"
   story_id: "I1.S1"
   iteration_id: "I1"
@@ -159,29 +159,29 @@ work.spec_requested:
   kind: "ac"
   base_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
 
-work.spec_ready:
+spec.written:
   behaviour_id: "I1.S1.B1"
   test_paths: ["tests/acceptance/test_free_rooms.py"]
   commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
   touches: ["src/rooms/cli.py"]
 
-work.judgement_requested:
+judgement.requested:
   behaviour_id: "I1.S1.B1"
   commit_sha: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
   run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
 
-work.acceptance_verdict:
+acceptance.judged:
   behaviour_id: "I1.S1.B1"
   verdict: "pass"
   run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   reason: "AT green on the real CLI surface; no mocks in the step definitions."
 
-work.build_requested:
+build.requested:
   behaviour_id: "I1.S1.B1"
   spec_commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
   test_paths: ["tests/acceptance/test_free_rooms.py"]
 
-work.rework_requested:
+rework.requested:
   behaviour_id: "I1.S1.B1"
   attempt: 2
   findings:
@@ -192,7 +192,7 @@ work.rework_requested:
       line: 42
       source: "reviewer"
 
-work.built:
+behaviour.built:
   behaviour_id: "I1.S1.B1"
   story_id: "I1.S1"
   iteration_id: "I1"
@@ -200,7 +200,7 @@ work.built:
   attempt: 1
   summary: "Implemented `rooms free` against the calendar client; AT green locally."
 
-work.error:
+error.raised:
   behaviour_id: "I1.S1.B1"
   kind: "push_conflict"
   detail: "Push rejected after rebase retry; branch diverged externally."
@@ -213,7 +213,7 @@ gate.requested:
   commit_sha: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
   base_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
 
-gate.verdict:
+gate.judged:
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   verdict: "pass"
   findings: []
@@ -236,59 +236,59 @@ run.completed:
   artifact_path: ".relay/runs/run-01J5AB3CDEF4GH5JK6MN7PQ8RS.log"
   summary: "1 failed (expected: red verification before build)."
 
-control.correction:
+correction.issued:
   finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   subject_event_id: "01J5AB3CDEF4GH5JK6MN7PQ8RS"
   rule_id: "realm.builder.no-domain-reinterpretation"
   required_remedy: "resend_on_contract"
-  note: "work.built summary re-interprets the requirement instead of stating what now works."
+  note: "behaviour.built summary re-interprets the requirement instead of stating what now works."
 
-control.ack:
+correction.acknowledged:
   finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
 
-sentinel.escalation:
+escalation.raised:
   role: "builder"
   finding_ids: ["find-01J5AB3CDEF4GH5JK6MN7PQ8RS"]
-  reason: "Three uncorrected realm violations on work.built summaries."
+  reason: "Three uncorrected realm violations on behaviour.built summaries."
 
-control.pause:
+pause.ordered:
   role: "builder"
   reason: "Escalation gate-01J5AB3CDEF4GH5JK6MN7PQ8RS pending owner decision."
 
-control.resume:
+resume.ordered:
   role: "builder"
   reason: "Owner resolved the escalation."
 
-system.worker_started:
+worker.started:
   role: "builder"
   host: "andreas-mbp"
   pid: 4242
   worker_version: "0.1.0"
   contract_hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
-system.worker_stopped:
+worker.stopped:
   role: "builder"
   host: "andreas-mbp"
   pid: 4242
 
-system.worker_error:
+worker.failed:
   role: "builder"
   kind: "runner_failure"
   detail: "claude -p exited 1 after 3 retries."
 
-system.dlq_routed:
+message.quarantined:
   original_event_id: "01J5AB3CDEF4GH5JK6MN7PQ8RS"
   reason: "off_contract"
   detail: "vocabulary violation: 'work.done' is not allowed on edge builder>coordinator"
 
-system.gap_detected:
+gap.detected:
   expected_seq: 41
   observed_seq: 43
 
-system.runner_session_started:
+session.started:
   role: "builder"
   session_ref: "sess-8c1f2b"
 
-system.contract_upgraded:
+contract.upgraded:
   old_hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
   new_hash: "af86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"

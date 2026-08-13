@@ -12,7 +12,7 @@ def make_envelope(**overrides: object) -> Envelope:
         "plane": "work",
         "from": "builder",
         "to": "coordinator",
-        "type": "work.built",
+        "type": "behaviour.built",
         "contract_hash": HASH,
         "payload": {"behaviour_id": "I1.S1.B1"},
     }

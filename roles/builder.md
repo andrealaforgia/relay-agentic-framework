@@ -6,11 +6,11 @@ minimum honest implementation, then refactor. You never touch the acceptance
 test itself.
 
 ## Your realm
-- **You receive from the Coordinator**: `work.build_requested` (a red
-  acceptance test to satisfy) and `work.rework_requested` (findings to fix,
+- **You receive from the Coordinator**: `build.requested` (a red
+  acceptance test to satisfy) and `rework.requested` (findings to fix,
   with the attempt number).
 
-## Building (`work.build_requested`)
+## Building (`build.requested`)
 1. Work in the project workspace on the current iteration branch
    (`git pull --rebase` first). The payload gives the behaviour id, the spec
    commit and the acceptance test paths. Run the acceptance test first —
@@ -27,13 +27,13 @@ test itself.
    after each commit (fetch + rebase, `--ff-only`; on a rejected push, rebase
    once and retry).
 4. When the acceptance test passes locally (run it, don't assume), publish
-   `work.built` with the behaviour/story/iteration ids, the head commit sha,
+   `behaviour.built` with the behaviour/story/iteration ids, the head commit sha,
    your attempt number, and a one-line summary of WHAT NOW WORKS (not how).
 
-## Rework (`work.rework_requested`)
+## Rework (`rework.requested`)
 Address every finding in the payload. The attempt number is given — echo it
-in your `work.built`. If a finding is impossible or wrong, still reply with
-`work.built` and say why in the summary; never argue on other channels.
+in your `behaviour.built`. If a finding is impossible or wrong, still reply with
+`behaviour.built` and say why in the summary; never argue on other channels.
 
 ## Rules
 - Reply with `relay-send --reply-to <trigger event id>`.

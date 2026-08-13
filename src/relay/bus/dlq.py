@@ -1,5 +1,5 @@
 """Dead letters. Nothing is ever dropped silently: routing to the DLQ also
-publishes a system.dlq_routed event on the ledger so the audit trail records
+publishes a message.quarantined event on the ledger so the audit trail records
 that (and why) something was set aside."""
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def route_to_dlq(
     original = raw_fields.get("event_id", "")
     if original:
         payload["original_event_id"] = original
-    publisher.send(routed_by, "system", "system.dlq_routed", payload)
+    publisher.send(routed_by, "system", "message.quarantined", payload)
     return str(dlq_id)
 
 

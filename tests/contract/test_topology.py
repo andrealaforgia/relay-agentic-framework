@@ -13,21 +13,21 @@ validator = ContractValidator(contract)
 
 
 def test_allowed_edge_and_type_passes() -> None:
-    validator.validate_edge("owner", "interpreter", "chat.problem")
-    validator.validate_edge("builder", "coordinator", "work.built")
+    validator.validate_edge("owner", "interpreter", "problem.stated")
+    validator.validate_edge("builder", "coordinator", "behaviour.built")
 
 
 def test_unlisted_edge_is_topology_violation() -> None:
     # The builder must never speak to the owner — the core realm rule.
     with pytest.raises(TopologyViolation):
-        validator.validate_edge("builder", "owner", "chat.result")
+        validator.validate_edge("builder", "owner", "update.shared")
     with pytest.raises(TopologyViolation):
-        validator.validate_edge("specifier", "builder", "work.spec_ready")  # goes via coordinator
+        validator.validate_edge("specifier", "builder", "spec.written")  # goes via coordinator
 
 
 def test_wrong_type_on_edge_is_vocabulary_violation() -> None:
     with pytest.raises(VocabularyViolation):
-        validator.validate_edge("owner", "interpreter", "work.built")
+        validator.validate_edge("owner", "interpreter", "behaviour.built")
 
 
 def test_wildcard_edges_expanded() -> None:
@@ -35,11 +35,11 @@ def test_wildcard_edges_expanded() -> None:
     for assistant in contract.assistants:
         if assistant == "sentinel":
             continue
-        validator.validate_edge("sentinel", assistant, "control.correction")
-        validator.validate_edge(assistant, "sentinel", "control.ack")
+        validator.validate_edge("sentinel", assistant, "correction.issued")
+        validator.validate_edge(assistant, "sentinel", "correction.acknowledged")
     # every role may report to system
-    validator.validate_edge("toolgate", "system", "system.worker_started")
-    validator.validate_edge("owner", "system", "system.worker_stopped")
+    validator.validate_edge("toolgate", "system", "worker.started")
+    validator.validate_edge("owner", "system", "worker.stopped")
 
 
 def test_self_edges_never_exist() -> None:
@@ -49,9 +49,9 @@ def test_self_edges_never_exist() -> None:
 
 def test_bad_payload_is_payload_violation() -> None:
     with pytest.raises(PayloadViolation):
-        validator.validate_payload("chat.problem", {})  # 'text' required
+        validator.validate_payload("problem.stated", {})  # 'text' required
     with pytest.raises(PayloadViolation):
-        validator.validate_payload("work.built", {
+        validator.validate_payload("behaviour.built", {
             "behaviour_id": "I1.S1.B1",
             "story_id": "I1.S1",
             "iteration_id": "I1",
@@ -59,7 +59,7 @@ def test_bad_payload_is_payload_violation() -> None:
             "attempt": 1,
         })
     with pytest.raises(PayloadViolation):
-        validator.validate_payload("chat.problem", {"text": "hi", "extra": True})  # additionalProperties
+        validator.validate_payload("problem.stated", {"text": "hi", "extra": True})  # additionalProperties
 
 
 def test_unknown_type_is_payload_violation() -> None:
@@ -79,7 +79,7 @@ def test_correction_note_cannot_carry_work_content() -> None:
         "note": "x" * 501,
     }
     with pytest.raises(PayloadViolation):
-        validator.validate_payload("control.correction", payload)
+        validator.validate_payload("correction.issued", payload)
 
 
 def test_contract_hash_shape_and_stability() -> None:

@@ -64,7 +64,7 @@ class Dispatcher:
             return published
         if not self._roadmap_valid(state):
             self._publisher.send(
-                COORDINATOR, "interpreter", "plan.roadmap_rejected",
+                COORDINATOR, "interpreter", "roadmap.rejected",
                 {"reasons": self._roadmap_errors(state)},
             )
             state.roadmap_committed = False
@@ -87,7 +87,7 @@ class Dispatcher:
         if state.roadmap_committed or state.recon_requested or not self._git.has_history():
             return 0
         self._publisher.send(
-            COORDINATOR, "analyst", "work.recon_requested",
+            COORDINATOR, "analyst", "recon.requested",
             {"commit_sha": self._git.head_sha()},
         )
         state.recon_requested = True
@@ -134,7 +134,7 @@ class Dispatcher:
     def _dispatch_spec(self, b: Behaviour) -> int:
         base = self._git.head_sha()
         self._publisher.send(
-            COORDINATOR, "specifier", "work.spec_requested",
+            COORDINATOR, "specifier", "spec.requested",
             {
                 "behaviour_id": b.id,
                 **({"story_id": b.story_id} if b.story_id else {}),
@@ -159,7 +159,7 @@ class Dispatcher:
             if blocked:
                 return blocked
             self._publisher.send(
-                COORDINATOR, "builder", "work.build_requested",
+                COORDINATOR, "builder", "build.requested",
                 {
                     "behaviour_id": b.id,
                     "spec_commit_sha": _require(b.spec_commit, "spec_commit"),
@@ -192,7 +192,7 @@ class Dispatcher:
         if not touched_risks or state.story_char_done(b.story_id):
             return 0
         self._publisher.send(
-            COORDINATOR, "interpreter", "plan.owner_decision_needed",
+            COORDINATOR, "interpreter", "decision.requested",
             {
                 "gate_id": _new_gate_id(),
                 "subject_id": b.id,
@@ -257,7 +257,7 @@ class Dispatcher:
         next_attempt = b.attempt + 1
         if next_attempt > self._policy.max_attempts:
             self._publisher.send(
-                COORDINATOR, "interpreter", "plan.owner_decision_needed",
+                COORDINATOR, "interpreter", "decision.requested",
                 {
                     "gate_id": _new_gate_id(),
                     "subject_id": b.id,
@@ -268,7 +268,7 @@ class Dispatcher:
             b.state = BehaviourState.BLOCKED
             return 1
         self._publisher.send(
-            COORDINATOR, "builder", "work.rework_requested",
+            COORDINATOR, "builder", "rework.requested",
             {
                 "behaviour_id": b.id,
                 "attempt": next_attempt,
@@ -294,7 +294,7 @@ class Dispatcher:
         if not green:
             return 0
         self._publisher.send(
-            COORDINATOR, "specifier", "work.judgement_requested",
+            COORDINATOR, "specifier", "judgement.requested",
             {
                 "behaviour_id": b.id,
                 "commit_sha": _require(b.built_commit, "built_commit"),
@@ -322,7 +322,7 @@ class Dispatcher:
                     continue
             behaviours = state.story_behaviours(story.id)
             self._publisher.send(
-                COORDINATOR, "interpreter", "plan.story_done",
+                COORDINATOR, "interpreter", "story.completed",
                 {
                     "story_id": story.id,
                     "summary": f"{len(behaviours)} behaviours accepted for '{story.title}'.",
@@ -395,7 +395,7 @@ class Dispatcher:
             if iteration.pr_approved and not iteration.pr_opened:
                 url = self._git.create_pr(iteration.id)
                 self._publisher.send(
-                    COORDINATOR, "interpreter", "plan.pr_opened",
+                    COORDINATOR, "interpreter", "pr.opened",
                     {"iteration_id": iteration.id, "pr_url": url},
                     iteration_id=iteration.id,
                 )
@@ -417,7 +417,7 @@ class Dispatcher:
                     continue
             behaviours = state.iteration_behaviours(iteration.id)
             self._publisher.send(
-                COORDINATOR, "interpreter", "plan.iteration_ready",
+                COORDINATOR, "interpreter", "iteration.finished",
                 {
                     "iteration_id": iteration.id,
                     "summary": (
@@ -461,7 +461,7 @@ class Dispatcher:
         if iteration.gates_failed():
             failed = [g.gate for g in iteration.pending_gates.values() if g.verdict == "fail"]
             self._publisher.send(
-                COORDINATOR, "interpreter", "plan.owner_decision_needed",
+                COORDINATOR, "interpreter", "decision.requested",
                 {
                     "gate_id": _new_gate_id(),
                     "subject_id": iteration.id,
@@ -503,7 +503,7 @@ class Dispatcher:
                         and b.state != BehaviourState.PLANNED), "")
         blocked = [b.id for b in behaviours if b.state == BehaviourState.BLOCKED]
         self._publisher.send(
-            COORDINATOR, "owner", "chat.progress",
+            COORDINATOR, "owner", "progress.reported",
             {
                 "iteration_id": iteration.id,
                 "behaviours_done": done,

@@ -4,7 +4,7 @@ Per triggering message: build the prompt (playbook + trigger + protocol
 reminder) -> invoke the runner -> VERIFY a reply from this role with
 in_reply_to = trigger is actually on the ledger (never trust the model's
 say-so) -> corrective re-prompt up to MAX_CORRECTIONS times -> DLQ + loud
-system.worker_error if the model never delivers.
+worker.failed if the model never delivers.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class ChainWorker(Worker):
         if ref and ref != previous:
             self._session_file.write_text(ref)
             self.publisher.send(
-                self.role, "system", "system.runner_session_started",
+                self.role, "system", "session.started",
                 {"role": self.role, "session_ref": ref},
             )
 
@@ -114,7 +114,7 @@ class ChainWorker(Worker):
         sha = str(env.payload["commit_sha"])
         if not gitops.commit_exists(self.workspace, sha):
             self.publisher.send(
-                self.role, "system", "system.worker_error",
+                self.role, "system", "worker.failed",
                 {"role": self.role, "kind": "other",
                  "detail": f"gate {env.payload.get('gate_id')}: commit {sha} not present"},
             )
@@ -181,7 +181,7 @@ class ChainWorker(Worker):
 
         # the model never delivered: loud failure, never a silent stall
         self.publisher.send(
-            self.role, "system", "system.worker_error",
+            self.role, "system", "worker.failed",
             {"role": self.role, "kind": "runner_failure",
              "detail": f"no reply published for {env.event_id} after {MAX_CORRECTIONS + 1} turns"},
         )

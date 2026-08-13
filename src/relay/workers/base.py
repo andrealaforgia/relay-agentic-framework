@@ -63,7 +63,7 @@ class Worker:
 
     def announce_started(self) -> None:
         self.publisher.send(
-            self.role, "system", "system.worker_started",
+            self.role, "system", "worker.started",
             {
                 "role": self.role,
                 "host": socket.gethostname(),
@@ -75,7 +75,7 @@ class Worker:
 
     def announce_stopped(self) -> None:
         self.publisher.send(
-            self.role, "system", "system.worker_stopped",
+            self.role, "system", "worker.stopped",
             {"role": self.role, "host": socket.gethostname(), "pid": os.getpid()},
         )
 
@@ -159,7 +159,7 @@ class Worker:
             return
         if self._paused:
             # a paused role leaves work in the PEL: nothing is lost, nothing
-            # is processed until control.resume
+            # is processed until resume.ordered
             return
         if dedup.already_done(self.client, self.swarm, self.role, env.event_id):
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
@@ -194,19 +194,19 @@ class Worker:
         The ack is published by the WORKER on receipt — whether the model's
         behaviour then changes is judged by the sentinel from later traffic.
         """
-        if env.type == "control.correction":
+        if env.type == "correction.issued":
             print(f"[{_now()}] correction from sentinel: {env.payload.get('rule_id')}", flush=True)
             self.pending_corrections.append(env)
             self.publisher.send(
-                self.role, "sentinel", "control.ack",
+                self.role, "sentinel", "correction.acknowledged",
                 {"finding_id": env.payload["finding_id"]},
                 in_reply_to=env.event_id,
             )
-        elif env.type == "control.pause":
+        elif env.type == "pause.ordered":
             print(f"[{_now()}] PAUSED by coordinator: {env.payload.get('reason', '')}", flush=True)
             self._paused = True
             self.heartbeat(status="paused")
-        elif env.type == "control.resume":
+        elif env.type == "resume.ordered":
             print(f"[{_now()}] resumed", flush=True)
             self._paused = False
             self._drain_pel_next_step = True  # work parked during the pause

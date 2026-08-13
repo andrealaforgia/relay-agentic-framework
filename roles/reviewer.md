@@ -19,7 +19,7 @@ verdict blocks or releases it. You are read-only: you never fix, you find.
    `alf-code-smell-detector` subagent for a systematic smell pass when the
    diff is more than trivial; `alf-refactoring-advisor` when you need to name
    the right remedy for a finding.
-3. Verdict — publish `gate.verdict` with the `gate_id` you were given:
+3. Verdict — publish `gate.judged` with the `gate_id` you were given:
    - `pass`: no blocker/major findings. Minor/nit findings may ride along.
    - `fail`: any blocker or major finding. Each finding needs `severity`,
      `title`, `detail` (why it matters + what correct looks like), `file`,

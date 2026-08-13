@@ -30,7 +30,7 @@ write whose crash window forks truth. Fan-out cost is irrelevant at this volume.
 
 **Direct communication (the sentinel question) is a field, not a second system**: `plane: control`
 on the same stream. Corrections are direct-addressed, consumed like mail, but sit in the same total
-order — no off-ledger channel exists. The `control.correction` payload schema is structurally
+order — no off-ledger channel exists. The `correction.issued` payload schema is structurally
 incapable of carrying work content, so the control plane cannot become a covert work channel. The
 coordinator ignores control messages for work state.
 
@@ -77,7 +77,7 @@ choice, not an architecture change.
 
 ## D8 — Gates block the work, not the builder
 
-The builder's turn ends at `work.built`; the coordinator holds pending-gate state and fans out
+The builder's turn ends at `behaviour.built`; the coordinator holds pending-gate state and fans out
 reviewer ∥ qa. DECIDED granularity (policy-configurable in `policies/gates.yaml`): review + qa per
 behaviour, mutation per story, security per iteration. Timeouts re-dispatch once then escalate to
 the owner — **no timeout ever auto-approves; human gates never expire; fail closed.**
@@ -142,7 +142,7 @@ and publish corrections without a model. Only the semantic realm audit
 ("provenance, not vocabulary") spends model turns, in batches. The culprit's
 WORKER acks corrections mechanically and injects them into the next model
 turn — an ignored sentinel is structurally impossible, and repeat offenders
-escalate to the interpreter (once per role). `control.pause` is enforced by
+escalate to the interpreter (once per role). `pause.ordered` is enforced by
 the worker loop: parked work stays in the PEL, `resume` drains it.
 
 ## Phased roadmap

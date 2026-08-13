@@ -139,10 +139,15 @@ class SentinelWorker(Worker):
 
     def _check_sequence(self, env: Envelope) -> None:
         if env.seq is not None and env.seq > self.expected_seq:
-            self.publisher.send(
+            result = self.publisher.send(
                 "sentinel", "system", "gap.detected",
                 {"expected_seq": self.expected_seq, "observed_seq": env.seq},
             )
+            # our own publish consumes a seq we won't read back before the
+            # next foreign event — account for it now or every own message
+            # becomes a false gap alarm
+            if result.seq is not None:
+                self.expected_seq = max(self.expected_seq, result.seq + 1)
 
     def _check_mechanical(self, env: Envelope) -> None:
         if env.type == "acceptance.judged":

@@ -287,7 +287,11 @@ def down(swarm: str = SwarmOpt) -> None:
         if procs.stop_worker(name, role):
             console.print(f"[green]✓[/green] {role} stopped")
             stopped = True
-    if stopped:
+    strays = procs.reap_swarm(name)  # zombies with no pidfile (deleted state dirs)
+    if strays:
+        console.print(f"[yellow]•[/yellow] reaped {len(strays)} untracked worker(s): "
+                      f"{', '.join(map(str, strays))}")
+    if stopped or strays:
         console.print(f"swarm '{name}' is down — `relay up` resumes exactly here")
 
 

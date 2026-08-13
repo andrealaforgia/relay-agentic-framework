@@ -189,7 +189,7 @@ def test_recon_runs_first_and_risk_areas_block_uncharacterized_builds(client, pu
     mini.pump()
     assert len(mini.sent("recon.requested")) == 1  # recon before any roadmap
     publisher.send("analyst", "interpreter", "recon.completed",
-                   {"brief_path": "docs/relay/codebase-brief.md",
+                   {"brief_path": "docs/codebase-brief.md",
                     "risk_areas": ["src/x.py"], "coverage_summary": "untested"})
     publisher.send("interpreter", "coordinator", "roadmap.committed",
                    {"roadmap": ROADMAP, "intake": {"mode": "legacy"}})

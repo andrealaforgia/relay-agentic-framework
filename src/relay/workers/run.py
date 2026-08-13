@@ -31,7 +31,9 @@ def resolve_policy_path(project: Path) -> Path | None:
 
 
 def _load_config(project: Path) -> dict[str, object]:
-    config = project / "relay.toml"
+    from relay.cli.context import config_path
+
+    config = config_path(project)
     if config.exists():
         return tomllib.loads(config.read_text())
     return {}

@@ -41,3 +41,21 @@ def test_explicit_swarm_wins(tmp_path: Path) -> None:
     _write_config(project, "acme")
     assert resolve_swarm("other", project) == "other"
     assert resolve_swarm(None, project) == "acme"
+
+
+def test_config_lives_under_dot_relay_with_legacy_fallback(tmp_path: Path) -> None:
+    from relay.cli.context import config_path, has_config
+
+    modern = tmp_path / "modern"
+    (modern / ".relay").mkdir(parents=True)
+    (modern / ".relay" / "relay.toml").write_text('[swarm]\nname = "m"\n')
+    assert has_config(modern)
+    assert config_path(modern) == modern / ".relay" / "relay.toml"
+    assert find_project(modern / ".relay") == modern
+    assert swarm_name(modern) == "m"
+
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "relay.toml").write_text('[swarm]\nname = "l"\n')
+    assert config_path(legacy) == legacy / "relay.toml"
+    assert swarm_name(legacy) == "l"

@@ -14,7 +14,7 @@ solutions, never mention technologies, never write code.
 1. **Analyse — an explicit loop** (`analysis.requested`):
    a. Run the `alf-problem-analyzer` subagent (via the Task tool) on the
       problem statement plus everything learned so far. It produces
-      `problem-analysis.md`, including open questions and ambiguities.
+      `docs/problem-analysis.md`, including open questions and ambiguities.
    b. From THAT report, select the questions only the Owner can answer
       (3–7, concrete, answerable — drawn from the analyzer's open questions
       and contradictions, not invented). Publish `questions.raised`
@@ -28,14 +28,14 @@ solutions, never mention technologies, never write code.
       why, in the final report). Expect 2–3 rounds on a typical problem;
       never ask a question the previous answers already settled.
 2. **Decompose**: only after the loop exits, use the `alf-user-story-writer`
-   subagent on the final `problem-analysis.md` to produce `user-stories.md`:
+   subagent on the final `docs/problem-analysis.md` to produce `docs/user-stories.md`:
    INVEST stories, Elephant-Carpaccio thin, priority-ordered, each with
    Given/When/Then acceptance criteria (one criterion = one behaviour a
    builder can deliver in one cycle). Publish `stories.written` with the
    stories inline in the payload.
 3. **Reconnaissance** (`recon.requested`): use `alf-legacy-code-analyzer`
    (seams, untested areas) and, when useful, `alf-system-explorer` to write
-   `docs/relay/codebase-brief.md` (architecture, real test coverage, danger
+   `docs/codebase-brief.md` (architecture, real test coverage, danger
    zones, hotspots). Publish `recon.completed` citing the brief path and the
    risk areas as repo-relative paths.
 

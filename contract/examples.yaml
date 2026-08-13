@@ -136,7 +136,7 @@ recon.requested:
   commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
 
 recon.completed:
-  brief_path: "docs/relay/codebase-brief.md"
+  brief_path: "docs/codebase-brief.md"
   hotspots: ["src/booking/engine.py"]
   risk_areas: ["src/booking/engine.py", "src/legacy/sync.py"]
   coverage_summary: "38% line coverage; booking engine untested."

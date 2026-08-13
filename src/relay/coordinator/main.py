@@ -7,6 +7,7 @@ mid-behaviour without double-dispatching.
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import time
@@ -65,6 +66,7 @@ class Coordinator:
         self.group = group_name("coordinator")
         self.consumer = f"coordinator@{socket.gethostname()}#{os.getpid()}"
         self._stopping = False
+        self._started = time.time()
 
     def bootstrap(self) -> None:
         """Full replay for state; the consumer group only signals new arrivals."""
@@ -100,7 +102,7 @@ class Coordinator:
             self.dispatcher.react(self.state)
         self.client.set(
             presence_key(self.swarm, "coordinator", socket.gethostname()),
-            str(os.getpid()),
+            json.dumps({"pid": os.getpid(), "status": "coordinating", "since": self._started}),
             ex=PRESENCE_TTL_S,
         )
         return len(deliveries)

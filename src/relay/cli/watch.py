@@ -86,8 +86,9 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
         status, elapsed = "alive", ""
         try:
             info = _json.loads(str(raw))
-            status = str(info.get("status", "alive"))
-            elapsed = f" ({int(_time.time() - float(info.get('since', _time.time())))}s)"
+            if isinstance(info, dict):  # older writers stored a bare pid
+                status = str(info.get("status", "alive"))
+                elapsed = f" ({int(_time.time() - float(info.get('since', _time.time())))}s)"
         except (ValueError, TypeError):
             pass
         style = "bright_black" if status == "idle" else "bold yellow"

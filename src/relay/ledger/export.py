@@ -18,24 +18,29 @@ import redis
 
 from relay.bus.keys import ledger_key, seq_key
 from relay.contract.envelope import Envelope
-from relay.ledger.reader import read_all
+from relay.ledger.reader import read_all_raw
 
 
 def export_jsonl(client: redis.Redis, swarm: str, path: Path) -> int:
+    """Raw fidelity: exports every entry as-is, including foreign-format ones,
+    so an exported ledger is a faithful snapshot of the stream."""
     count = 0
     with path.open("w") as f:
-        for _stream_id, env in read_all(client, swarm):
-            f.write(json.dumps(env.to_fields(), sort_keys=True) + "\n")
+        for _stream_id, fields in read_all_raw(client, swarm):
+            f.write(json.dumps(fields, sort_keys=True) + "\n")
             count += 1
     return count
 
 
 def read_jsonl(path: Path) -> Iterator[Envelope]:
+    """Yields the valid v2 envelopes in an export; foreign entries are skipped."""
     with path.open() as f:
         for line in f:
             line = line.strip()
             if line:
-                yield Envelope.from_fields(json.loads(line))
+                env = Envelope.try_from_fields(json.loads(line))
+                if env is not None:
+                    yield env
 
 
 def import_envelopes(client: redis.Redis, swarm: str, envelopes: Iterable[Envelope]) -> int:

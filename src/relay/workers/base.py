@@ -145,6 +145,11 @@ class Worker:
 
     def _process(self, delivery: groups.Delivery) -> None:
         env = delivery.envelope
+        if env is None:
+            # foreign/corrupt entry: skip and ack — the coordinator dead-letters it
+            print(f"[{_now()}] skipping non-envelope entry {delivery.stream_id}", flush=True)
+            groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+            return
         if env.to_role == self.role and env.plane == "control":
             self._handle_control(env)
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)

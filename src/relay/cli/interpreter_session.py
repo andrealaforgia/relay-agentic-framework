@@ -83,6 +83,7 @@ class InterpreterSession:
         self._stdin_lock = threading.Lock()
         self._streamed_any = False
         self._turn_streamed = False
+        self._warned_foreign = False
 
     # ── claude process ───────────────────────────────────────────────────────
 
@@ -203,6 +204,13 @@ class InterpreterSession:
 
     def _consume(self, group: str, delivery: groups.Delivery) -> None:
         env = delivery.envelope
+        if env is None:
+            if not self._warned_foreign:
+                self._warned_foreign = True
+                console.print("[dim]· skipping entries from another writer on this stream "
+                              "(old swarm with the same name?) — see `relay status` dlq[/dim]")
+            groups.ack(self.client, self.stream, group, delivery.stream_id)
+            return
         if group == group_name("interpreter") and env.to_role == "interpreter" \
                 and env.from_role != "owner":
             # feed relay traffic into the conversation; the model reacts live

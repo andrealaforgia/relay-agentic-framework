@@ -121,6 +121,8 @@ class SentinelWorker(Worker):
     def _process(self, delivery: groups.Delivery) -> None:
         env = delivery.envelope
         groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+        if env is None:
+            return  # foreign/corrupt entry — quarantined by the coordinator
         if env.from_role == "sentinel":
             self._absorb_silently(env)
             return

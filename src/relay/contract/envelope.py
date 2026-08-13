@@ -12,7 +12,7 @@ import socket
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from ulid import ULID
 
 ULID_PATTERN = r"^[0-9A-HJKMNP-TV-Z]{26}$"
@@ -72,6 +72,16 @@ class Envelope(BaseModel):
             value = getattr(self, name)
             fields[name] = value if value is not None else ""
         return fields
+
+    @classmethod
+    def try_from_fields(cls, fields: dict[str, str]) -> "Envelope | None":
+        """None for entries that are not valid v2 envelopes (foreign writers,
+        corruption). Callers decide whether to skip, warn, or dead-letter —
+        a poison entry must never kill a consumer."""
+        try:
+            return cls.from_fields(fields)
+        except (ValidationError, ValueError, KeyError, TypeError):
+            return None
 
     @classmethod
     def from_fields(cls, fields: dict[str, str]) -> "Envelope":

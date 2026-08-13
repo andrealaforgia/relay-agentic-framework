@@ -17,8 +17,13 @@ from relay.contract.envelope import Envelope
 
 @dataclass(frozen=True)
 class Delivery:
+    """envelope is None for entries that don't parse as v2 envelopes (foreign
+    writers on the same stream, corruption). raw always carries the fields so
+    the consumer can ack, warn, or dead-letter — never crash."""
+
     stream_id: str
-    envelope: Envelope
+    envelope: Envelope | None
+    raw: dict[str, str]
 
 
 def ensure_group(client: redis.Redis, stream: str, group: str) -> None:
@@ -36,7 +41,11 @@ def _to_deliveries(reply: object) -> list[Delivery]:
         for stream_id, fields in entries:
             # fields can be None for entries deleted via XAUTOCLAIM edge cases
             if fields:
-                deliveries.append(Delivery(stream_id=stream_id, envelope=Envelope.from_fields(fields)))
+                deliveries.append(Delivery(
+                    stream_id=stream_id,
+                    envelope=Envelope.try_from_fields(fields),
+                    raw=fields,
+                ))
     return deliveries
 
 

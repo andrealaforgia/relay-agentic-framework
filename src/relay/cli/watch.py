@@ -112,7 +112,9 @@ def watch(swarm: str, refresh_s: float = 1.0, cycles: int | None = None) -> None
                 "list[tuple[str, dict[str, str]]]", client.xrange(ledger_key(swarm))
             )
             for _sid, fields in entries[seen:]:
-                env = Envelope.from_fields(fields)
+                env = Envelope.try_from_fields(fields)
+                if env is None:
+                    continue  # foreign writer on this stream — the audit reports these
                 apply(state, env)
                 feed.append(_feed_line(env))
             seen = len(entries)

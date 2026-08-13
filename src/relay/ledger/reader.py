@@ -15,8 +15,9 @@ from relay.bus.keys import ledger_key
 from relay.contract.envelope import Envelope
 
 
-def read_all(client: redis.Redis, swarm: str, batch: int = 512) -> Iterator[tuple[str, Envelope]]:
-    """Yield (stream_id, envelope) in stream order, from the beginning."""
+def read_all_raw(client: redis.Redis, swarm: str, batch: int = 512) -> Iterator[tuple[str, dict[str, str]]]:
+    """Yield (stream_id, raw fields) in stream order — including entries that
+    are not valid v2 envelopes (foreign writers, corruption)."""
     last = "-"
     while True:
         entries = cast(
@@ -27,6 +28,15 @@ def read_all(client: redis.Redis, swarm: str, batch: int = 512) -> Iterator[tupl
             entries = entries[1:]  # xrange min is inclusive
         if not entries:
             return
-        for stream_id, fields in entries:
-            yield stream_id, Envelope.from_fields(fields)
+        yield from entries
         last = entries[-1][0]
+
+
+def read_all(client: redis.Redis, swarm: str, batch: int = 512) -> Iterator[tuple[str, Envelope]]:
+    """Yield (stream_id, envelope) in stream order, skipping entries that are
+    not valid v2 envelopes. Use read_all_raw + Envelope.try_from_fields to see
+    (and report on) the skipped ones — the audit does."""
+    for stream_id, fields in read_all_raw(client, swarm, batch=batch):
+        env = Envelope.try_from_fields(fields)
+        if env is not None:
+            yield stream_id, env

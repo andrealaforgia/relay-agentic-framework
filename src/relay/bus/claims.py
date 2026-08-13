@@ -22,7 +22,7 @@ def autoclaim_stale(
         stream, group, consumer, min_idle_time=min_idle_ms, start_id="0-0", count=count
     )
     return [
-        Delivery(stream_id=stream_id, envelope=Envelope.from_fields(fields))
+        Delivery(stream_id=stream_id, envelope=Envelope.try_from_fields(fields), raw=fields)
         for stream_id, fields in entries
         if fields
     ]

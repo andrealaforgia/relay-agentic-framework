@@ -14,7 +14,7 @@ from pathlib import Path
 
 import redis
 
-from relay.bus import groups
+from relay.bus import dlq, groups
 from relay.bus.client import get_client
 from relay.bus.keys import group_name, ledger_key, presence_key
 from relay.bus.publisher import Publisher
@@ -85,7 +85,16 @@ class Coordinator:
             self.client, self.stream, self.group, self.consumer, block_ms=block_ms
         )
         for delivery in deliveries:
-            apply(self.state, delivery.envelope)
+            if delivery.envelope is None:
+                # the coordinator owns quarantine: dead-letter foreign/corrupt
+                # entries exactly once, loudly (other consumers just skip them)
+                dlq.route_to_dlq(
+                    self.client, self.publisher, self.swarm, "coordinator",
+                    "unparseable", delivery.raw,
+                    f"stream entry {delivery.stream_id} is not a v2 envelope",
+                )
+            else:
+                apply(self.state, delivery.envelope)
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
         if deliveries:
             self.dispatcher.react(self.state)

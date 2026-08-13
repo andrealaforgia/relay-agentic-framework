@@ -16,7 +16,7 @@ import redis
 from relay.contract.envelope import Envelope
 from relay.contract.errors import ContractError
 from relay.contract.validator import ContractValidator
-from relay.ledger.reader import read_all
+from relay.ledger.reader import read_all_raw
 
 
 @dataclass
@@ -46,8 +46,17 @@ def audit_ledger(client: redis.Redis, validator: ContractValidator, swarm: str) 
     def finding(env: Envelope, stream_id: str, rule: str, detail: str) -> None:
         report.findings.append(AuditFinding(env.seq, stream_id, rule, detail))
 
-    for stream_id, env in read_all(client, swarm):
+    for stream_id, fields in read_all_raw(client, swarm):
         report.entries += 1
+        env_or_none = Envelope.try_from_fields(fields)
+        if env_or_none is None:
+            report.findings.append(AuditFinding(
+                None, stream_id, "unparseable",
+                f"not a v2 envelope (fields: {sorted(fields)[:8]}) — foreign writer "
+                f"on this stream, or corruption",
+            ))
+            continue
+        env = env_or_none
 
         if env.seq != expected_seq:
             finding(env, stream_id, "seq_gap", f"expected seq {expected_seq}, observed {env.seq}")

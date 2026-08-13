@@ -98,15 +98,20 @@ def _activity_line(role: str, text: str) -> Text:
 
 def _board(state: SwarmState) -> Table:
     table = Table(show_header=True, header_style="bold", expand=True)
-    table.add_column("behaviour", ratio=2)
-    table.add_column("state", ratio=1)
+    table.add_column("behaviour", no_wrap=True)
+    table.add_column("summary", ratio=3, no_wrap=True)
+    table.add_column("state", ratio=1, no_wrap=True)
     table.add_column("attempt", justify="right")
     for bid in state.behaviour_order:
         b = state.behaviours[bid]
         icon, colour = STATE_ICONS.get(b.state, ("◌", "yellow"))
         blink = "blink " if b.state not in STATE_ICONS else ""
+        summary = " ".join(b.ac_text.split())  # one line, whatever the AC's formatting
+        if b.state == BehaviourState.AT_RED and b.last_fail_reason:
+            summary = f"⚠ {b.last_fail_reason}"
         table.add_row(
             bid,
+            Text(summary, style="dim" if b.state in STATE_ICONS else ""),
             Text(f"{icon} {b.state}", style=f"{blink}{colour}"),
             str(b.attempt) if b.attempt > 1 else "",
         )

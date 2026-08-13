@@ -84,24 +84,32 @@ class Worker:
             ex=PRESENCE_TTL_S,
         )
 
-    def run_forever(self, block_ms: int = 5000, max_cycles: int | None = None) -> None:
+    def start(self) -> None:
+        """Startup order, always: group -> announce -> drain PEL -> autoclaim."""
         groups.ensure_group(self.client, self.stream, self.group)
         self.announce_started()
         self.heartbeat()
-
         for delivery in groups.read_pending(self.client, self.stream, self.group, self.consumer):
             self._process(delivery)
         for delivery in claims.autoclaim_stale(self.client, self.stream, self.group, self.consumer):
             self._process(delivery)
 
+    def step(self, block_ms: int = 5000) -> int:
+        """One read cycle. Returns how many deliveries were processed."""
+        deliveries = groups.read_new(
+            self.client, self.stream, self.group, self.consumer, block_ms=block_ms
+        )
+        for delivery in deliveries:
+            self._process(delivery)
+        self.heartbeat()
+        self.on_tick()
+        return len(deliveries)
+
+    def run_forever(self, block_ms: int = 5000, max_cycles: int | None = None) -> None:
+        self.start()
         cycles = 0
         while not self._stopping:
-            for delivery in groups.read_new(
-                self.client, self.stream, self.group, self.consumer, block_ms=block_ms
-            ):
-                self._process(delivery)
-            self.heartbeat()
-            self.on_tick()
+            self.step(block_ms=block_ms)
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:
                 break

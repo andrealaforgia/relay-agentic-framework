@@ -69,23 +69,28 @@ class Coordinator:
     def stop(self) -> None:
         self._stopping = True
 
+    def step(self, block_ms: int = 5000) -> int:
+        """One read-apply-react cycle. Returns how many events were consumed."""
+        deliveries = groups.read_new(
+            self.client, self.stream, self.group, self.consumer, block_ms=block_ms
+        )
+        for delivery in deliveries:
+            apply(self.state, delivery.envelope)
+            groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+        if deliveries:
+            self.dispatcher.react(self.state)
+        self.client.set(
+            presence_key(self.swarm, "coordinator", socket.gethostname()),
+            str(os.getpid()),
+            ex=PRESENCE_TTL_S,
+        )
+        return len(deliveries)
+
     def run_forever(self, block_ms: int = 5000, max_cycles: int | None = None) -> None:
         self.bootstrap()
         cycles = 0
         while not self._stopping:
-            deliveries = groups.read_new(
-                self.client, self.stream, self.group, self.consumer, block_ms=block_ms
-            )
-            for delivery in deliveries:
-                apply(self.state, delivery.envelope)
-                groups.ack(self.client, self.stream, self.group, delivery.stream_id)
-            if deliveries:
-                self.dispatcher.react(self.state)
-            self.client.set(
-                presence_key(self.swarm, "coordinator", socket.gethostname()),
-                str(os.getpid()),
-                ex=PRESENCE_TTL_S,
-            )
+            self.step(block_ms=block_ms)
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:
                 break

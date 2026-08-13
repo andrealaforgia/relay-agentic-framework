@@ -92,7 +92,13 @@ class ChainWorker(Worker):
         return None
 
     def handle(self, env: Envelope) -> str | None:
-        prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
+        # Crashed after publishing, before acking? The reply is already on the
+        # stream — never invoke the model again for work that is already done.
+        existing = self._reply_on_stream(env.event_id)
+        if existing is not None:
+            return existing
+
+        base_prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
             role=self.role,
             swarm=self.swarm,
             event_id=env.event_id,
@@ -100,8 +106,9 @@ class ChainWorker(Worker):
             type=env.type,
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
         )
+        prompt = base_prompt
 
-        for correction in range(MAX_CORRECTIONS + 1):
+        for _correction in range(MAX_CORRECTIONS + 1):
             result = self.runner.run_turn(
                 prompt=prompt,
                 cwd=self.workspace,
@@ -115,13 +122,15 @@ class ChainWorker(Worker):
                 return reply_id
 
             detail = result.error or "turn ended with no reply on the stream"
-            prompt = (
-                f"You did not publish any reply to event {env.event_id} "
-                f"(and the stream proves it — {detail}). "
-                f"Nothing you said counts until it is on the stream. "
-                f"Run relay-send now with --reply-to {env.event_id}."
+            # append, never replace: a runner without session resume must
+            # still see the original trigger it is being corrected about
+            prompt = base_prompt + (
+                f"\n\n== Correction ==\n"
+                f"Your previous turn published no reply to event {env.event_id} "
+                f"({detail}). Nothing counts until it is on the stream. "
+                f"Check what already exists (git log, files) before redoing work, "
+                f"then run relay-send with --reply-to {env.event_id}."
             )
-            _ = correction
 
         # the model never delivered: loud failure, never a silent stall
         self.publisher.send(

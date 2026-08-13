@@ -1,0 +1,676 @@
+# =============================================================================
+# Relay Agentic Framework — THE contract.
+#
+# This file is the ONLY definition of roles, planes, edges, message types and
+# per-type payload schemas. Everything else is generated from it or validates
+# against it at runtime:
+#   - publisher.py validates edge + type + payload before every XADD
+#   - consumers re-validate on read; off-contract input goes to the DLQ
+#   - `relay contract gen` emits Pydantic models + docs (drift-tested in CI)
+#   - every envelope carries the sha256 of this file (canonicalized) so two
+#     machines can never silently run different rules
+#
+# An edge is permitted iff it is listed here. A type is permitted on an edge
+# iff it is listed on that edge. A payload is permitted iff it validates
+# against its type's schema. There is no second place for any of this.
+# =============================================================================
+contract_version: 1
+
+roles:
+  assistants: [interpreter, analyst, specifier, builder, reviewer, qa, security, sentinel]
+  humans: [owner]
+  infra: [coordinator, toolgate, system]
+
+planes: [chat, plan, work, gate, run, control, system]
+
+# Shared schema definitions, injected as $defs into every payload schema.
+defs:
+  IterationId: { type: string, pattern: "^I[0-9]+$" }
+  StoryId: { type: string, pattern: "^I[0-9]+\\.S[0-9]+$" }
+  BehaviourId: { type: string, pattern: "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+)|INT)$" }
+  GitSha: { type: string, pattern: "^[0-9a-f]{40}$" }
+  EventId: { type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$" }   # ULID
+  RunId: { type: string, pattern: "^run-[0-9A-HJKMNP-TV-Z]{26}$" }
+  GateId: { type: string, pattern: "^gate-[0-9A-HJKMNP-TV-Z]{26}$" }
+  FindingId: { type: string, pattern: "^find-[0-9A-HJKMNP-TV-Z]{26}$" }
+  QuestionId: { type: string, pattern: "^q-[0-9A-HJKMNP-TV-Z]{26}$" }
+  Role:
+    type: string
+    enum: [owner, interpreter, analyst, specifier, builder, reviewer, qa, security, sentinel, coordinator, toolgate]
+  BehaviourKind: { type: string, enum: [ac, integration, characterization] }
+  GateName: { type: string, enum: [code_review, test_design, mutation, security, checkpoint, open_pr] }
+  Severity: { type: string, enum: [blocker, major, minor, nit] }
+  Finding:
+    type: object
+    required: [title, detail]
+    additionalProperties: false
+    properties:
+      severity: { $ref: "#/$defs/Severity" }
+      title: { type: string, maxLength: 200 }
+      detail: { type: string }
+      file: { type: string }
+      line: { type: integer, minimum: 1 }
+      source: { $ref: "#/$defs/Role" }
+  Story:
+    type: object
+    required: [id, title, narrative, acceptance_criteria]
+    additionalProperties: false
+    properties:
+      id: { $ref: "#/$defs/StoryId" }
+      title: { type: string, maxLength: 200 }
+      narrative: { type: string }          # As a / I want / So that
+      acceptance_criteria:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          required: [id, text]
+          additionalProperties: false
+          properties:
+            id: { $ref: "#/$defs/BehaviourId" }
+            text: { type: string }         # Given/When/Then
+      priority: { type: integer, minimum: 1 }
+      risk: { type: string, enum: [low, medium, high] }
+      size: { type: string, enum: [XS, S, M, L] }
+  Roadmap:
+    type: object
+    required: [iterations]
+    additionalProperties: false
+    properties:
+      iterations:
+        type: array
+        minItems: 1
+        items:
+          type: object
+          required: [id, goal, increment, stories]
+          additionalProperties: false
+          properties:
+            id: { $ref: "#/$defs/IterationId" }
+            goal: { type: string }
+            increment: { type: string }    # what is demonstrable/shippable at the end
+            stories: { type: array, minItems: 1, items: { $ref: "#/$defs/Story" } }
+      assumptions: { type: array, items: { type: string } }
+
+# -----------------------------------------------------------------------------
+# Edges. Key = "from>to". Wildcard "*assistant" expands to every assistant
+# role; "*" (only valid as a source, only on the system plane) expands to
+# every role. Expansion happens once, at load time.
+# -----------------------------------------------------------------------------
+edges:
+  chat:
+    owner>interpreter: [chat.problem, chat.answer, chat.decision, chat.feedback, chat.instruction]
+    interpreter>owner: [chat.question, chat.roadmap_proposed, chat.checkpoint, chat.pr_link, chat.result]
+    coordinator>owner: [chat.progress]     # machine-generated status; conversation stays interpreter-only
+  plan:
+    interpreter>coordinator: [plan.roadmap_committed, plan.iteration_started, plan.iteration_aborted, plan.pr_approved]
+    coordinator>interpreter: [plan.story_done, plan.iteration_ready, plan.stall_alert, plan.roadmap_rejected, plan.owner_decision_needed]
+  work:
+    interpreter>analyst: [work.analysis_requested, work.answers]
+    analyst>interpreter: [work.question_raised, work.recon_report, work.stories_ready]
+    coordinator>analyst: [work.recon_requested]
+    coordinator>specifier: [work.spec_requested, work.judgement_requested]
+    specifier>coordinator: [work.spec_ready, work.acceptance_verdict, work.error]
+    coordinator>builder: [work.build_requested, work.rework_requested]
+    builder>coordinator: [work.built, work.error]
+  gate:
+    coordinator>reviewer: [gate.requested]
+    coordinator>qa: [gate.requested]
+    coordinator>security: [gate.requested]
+    reviewer>coordinator: [gate.verdict]
+    qa>coordinator: [gate.verdict]
+    security>coordinator: [gate.verdict]
+  run:
+    coordinator>toolgate: [run.requested]
+    toolgate>coordinator: [run.completed]
+  control:
+    sentinel>*assistant: [control.correction]
+    "*assistant>sentinel": [control.ack]
+    sentinel>interpreter: [sentinel.escalation]
+    coordinator>*assistant: [control.pause, control.resume]
+  system:
+    "*>system": [system.worker_started, system.worker_stopped, system.worker_error,
+                 system.dlq_routed, system.gap_detected, system.runner_session_started,
+                 system.contract_upgraded]
+
+# -----------------------------------------------------------------------------
+# Message types. One entry per type; payload_schema is JSON Schema (2020-12).
+# The loader injects `defs` above as $defs into every schema.
+# -----------------------------------------------------------------------------
+message_types:
+
+  # ── chat ────────────────────────────────────────────────────────────────────
+  chat.problem:
+    payload_schema:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1 }
+
+  chat.question:
+    payload_schema:
+      type: object
+      required: [question_id, questions]
+      additionalProperties: false
+      properties:
+        question_id: { $ref: "#/$defs/QuestionId" }
+        questions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [text]
+            additionalProperties: false
+            properties:
+              text: { type: string }
+              options: { type: array, items: { type: string } }
+              recommended: { type: string }
+
+  chat.answer:
+    payload_schema:
+      type: object
+      required: [question_id, answers]
+      additionalProperties: false
+      properties:
+        question_id: { $ref: "#/$defs/QuestionId" }
+        answers: { type: array, minItems: 1, items: { type: string } }
+
+  chat.decision:
+    payload_schema:
+      type: object
+      required: [gate_id, decision]
+      additionalProperties: false
+      properties:
+        gate_id: { $ref: "#/$defs/GateId" }
+        decision: { type: string, enum: [approve, reject] }
+        comment: { type: string }
+
+  chat.feedback:
+    payload_schema:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1 }
+        subject_id: { type: string }
+
+  chat.instruction:
+    payload_schema:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1 }
+
+  chat.roadmap_proposed:
+    payload_schema:
+      type: object
+      required: [roadmap, narrative]
+      additionalProperties: false
+      properties:
+        roadmap: { $ref: "#/$defs/Roadmap" }
+        narrative: { type: string }
+
+  chat.checkpoint:
+    payload_schema:
+      type: object
+      required: [kind, subject_id, gate_id, summary]
+      additionalProperties: false
+      properties:
+        kind: { type: string, enum: [story, iteration] }
+        subject_id: { type: string }
+        gate_id: { $ref: "#/$defs/GateId" }
+        summary: { type: string }
+
+  chat.pr_link:
+    payload_schema:
+      type: object
+      required: [iteration_id, pr_url]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        pr_url: { type: string, pattern: "^https://" }
+
+  chat.result:
+    payload_schema:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string }
+
+  chat.progress:
+    payload_schema:
+      type: object
+      required: [iteration_id, behaviours_done, behaviours_total]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        behaviours_done: { type: integer, minimum: 0 }
+        behaviours_total: { type: integer, minimum: 0 }
+        current: { type: string }
+        blockers: { type: array, items: { type: string } }
+
+  # ── plan ────────────────────────────────────────────────────────────────────
+  plan.roadmap_committed:
+    payload_schema:
+      type: object
+      required: [roadmap, intake]
+      additionalProperties: false
+      properties:
+        roadmap: { $ref: "#/$defs/Roadmap" }
+        intake:
+          type: object
+          required: [mode]
+          additionalProperties: false
+          properties:
+            mode: { type: string, enum: [greenfield, legacy] }
+
+  plan.iteration_started:
+    payload_schema:
+      type: object
+      required: [iteration_id]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+
+  plan.iteration_aborted:
+    payload_schema:
+      type: object
+      required: [iteration_id, reason]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        reason: { type: string }
+
+  plan.pr_approved:
+    payload_schema:
+      type: object
+      required: [iteration_id, gate_id]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        gate_id: { $ref: "#/$defs/GateId" }
+
+  plan.story_done:
+    payload_schema:
+      type: object
+      required: [story_id, summary]
+      additionalProperties: false
+      properties:
+        story_id: { $ref: "#/$defs/StoryId" }
+        summary: { type: string }
+
+  plan.iteration_ready:
+    payload_schema:
+      type: object
+      required: [iteration_id, summary]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        summary: { type: string }
+
+  plan.stall_alert:
+    payload_schema:
+      type: object
+      required: [subject_id, waiting_on, since_ts]
+      additionalProperties: false
+      properties:
+        subject_id: { type: string }
+        waiting_on: { $ref: "#/$defs/Role" }
+        since_ts: { type: string, format: date-time }
+
+  plan.roadmap_rejected:
+    payload_schema:
+      type: object
+      required: [reasons]
+      additionalProperties: false
+      properties:
+        reasons: { type: array, minItems: 1, items: { type: string } }
+
+  plan.owner_decision_needed:
+    payload_schema:
+      type: object
+      required: [gate_id, subject_id, reason]
+      additionalProperties: false
+      properties:
+        gate_id: { $ref: "#/$defs/GateId" }
+        subject_id: { type: string }
+        reason: { type: string }
+        options: { type: array, items: { type: string } }
+
+  # ── work ────────────────────────────────────────────────────────────────────
+  work.analysis_requested:
+    payload_schema:
+      type: object
+      required: [problem]
+      additionalProperties: false
+      properties:
+        problem: { type: string, minLength: 1 }
+        codebase_brief_path: { type: string }
+
+  work.question_raised:
+    payload_schema:
+      type: object
+      required: [question_id, questions]
+      additionalProperties: false
+      properties:
+        question_id: { $ref: "#/$defs/QuestionId" }
+        questions: { type: array, minItems: 1, items: { type: string } }
+
+  work.answers:
+    payload_schema:
+      type: object
+      required: [question_id, answers]
+      additionalProperties: false
+      properties:
+        question_id: { $ref: "#/$defs/QuestionId" }
+        answers: { type: array, minItems: 1, items: { type: string } }
+
+  work.recon_requested:
+    payload_schema:
+      type: object
+      required: [commit_sha]
+      additionalProperties: false
+      properties:
+        commit_sha: { $ref: "#/$defs/GitSha" }
+
+  work.recon_report:
+    payload_schema:
+      type: object
+      required: [brief_path, risk_areas]
+      additionalProperties: false
+      properties:
+        brief_path: { type: string }
+        hotspots: { type: array, items: { type: string } }
+        risk_areas: { type: array, items: { type: string } }
+        coverage_summary: { type: string }
+
+  work.stories_ready:
+    payload_schema:
+      type: object
+      required: [stories]
+      additionalProperties: false
+      properties:
+        stories:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [title, narrative, acceptance_criteria]
+            additionalProperties: false
+            properties:
+              title: { type: string }
+              narrative: { type: string }
+              acceptance_criteria: { type: array, minItems: 1, items: { type: string } }
+              priority: { type: integer, minimum: 1 }
+              risk: { type: string, enum: [low, medium, high] }
+              size: { type: string, enum: [XS, S, M, L] }
+
+  work.spec_requested:
+    payload_schema:
+      type: object
+      required: [behaviour_id, iteration_id, ac_text, kind, base_sha]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        story_id: { $ref: "#/$defs/StoryId" }
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        ac_text: { type: string }
+        kind: { $ref: "#/$defs/BehaviourKind" }
+        base_sha: { $ref: "#/$defs/GitSha" }
+
+  work.spec_ready:
+    payload_schema:
+      type: object
+      required: [behaviour_id, test_paths, commit_sha, touches]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        test_paths: { type: array, minItems: 1, items: { type: string } }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        touches: { type: array, items: { type: string } }
+
+  work.judgement_requested:
+    payload_schema:
+      type: object
+      required: [behaviour_id, commit_sha, run_id]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        run_id: { $ref: "#/$defs/RunId" }
+
+  work.acceptance_verdict:
+    payload_schema:
+      type: object
+      required: [behaviour_id, verdict, run_id]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        verdict: { type: string, enum: [pass, fail] }
+        run_id: { $ref: "#/$defs/RunId" }
+        reason: { type: string }
+
+  work.build_requested:
+    payload_schema:
+      type: object
+      required: [behaviour_id, spec_commit_sha, test_paths]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        spec_commit_sha: { $ref: "#/$defs/GitSha" }
+        test_paths: { type: array, minItems: 1, items: { type: string } }
+        instructions: { type: array, items: { type: string } }
+
+  work.rework_requested:
+    payload_schema:
+      type: object
+      required: [behaviour_id, attempt, findings]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        attempt: { type: integer, minimum: 2 }
+        findings: { type: array, minItems: 1, items: { $ref: "#/$defs/Finding" } }
+
+  work.built:
+    payload_schema:
+      type: object
+      required: [behaviour_id, story_id, iteration_id, commit_sha, attempt]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        story_id:
+          oneOf: [{ $ref: "#/$defs/StoryId" }, { type: "null" }]   # null for INT behaviours
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        attempt: { type: integer, minimum: 1 }
+        summary: { type: string, maxLength: 2000 }
+
+  work.error:
+    payload_schema:
+      type: object
+      required: [kind, detail]
+      additionalProperties: false
+      properties:
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+        kind: { type: string, enum: [push_conflict, sha_unavailable, tool_failure, blocked, other] }
+        detail: { type: string }
+
+  # ── gate ────────────────────────────────────────────────────────────────────
+  gate.requested:
+    payload_schema:
+      type: object
+      required: [gate_id, gate, subject_kind, subject_id, commit_sha, base_sha]
+      additionalProperties: false
+      properties:
+        gate_id: { $ref: "#/$defs/GateId" }
+        gate: { $ref: "#/$defs/GateName" }
+        subject_kind: { type: string, enum: [behaviour, story, iteration] }
+        subject_id: { type: string }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        base_sha: { $ref: "#/$defs/GitSha" }
+        run_id: { $ref: "#/$defs/RunId" }    # e.g. the mutation tool run qa must judge
+
+  gate.verdict:
+    payload_schema:
+      type: object
+      required: [gate_id, verdict, findings]
+      additionalProperties: false
+      properties:
+        gate_id: { $ref: "#/$defs/GateId" }
+        verdict: { type: string, enum: [pass, fail] }
+        findings: { type: array, items: { $ref: "#/$defs/Finding" } }
+        score: { type: number }             # e.g. Farley Index, security score
+        run_id: { $ref: "#/$defs/RunId" }
+
+  # ── run ─────────────────────────────────────────────────────────────────────
+  run.requested:
+    payload_schema:
+      type: object
+      required: [run_id, kind, commit_sha]
+      additionalProperties: false
+      properties:
+        run_id: { $ref: "#/$defs/RunId" }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, command] }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        test_paths: { type: array, items: { type: string } }
+        command: { type: string }
+        behaviour_id: { $ref: "#/$defs/BehaviourId" }
+
+  run.completed:
+    payload_schema:
+      type: object
+      required: [run_id, kind, commit_sha, exit_code, duration_s, output_digest]
+      additionalProperties: false
+      properties:
+        run_id: { $ref: "#/$defs/RunId" }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, command] }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        exit_code: { type: integer }
+        duration_s: { type: number, minimum: 0 }
+        output_digest: { type: string }      # sha256 of captured output
+        artifact_path: { type: string }      # where full output is stored
+        summary: { type: string, maxLength: 2000 }
+
+  # ── control ─────────────────────────────────────────────────────────────────
+  # The correction schema is deliberately incapable of carrying work content:
+  # an enum remedy plus a 500-char note. The control plane cannot become a
+  # covert work channel.
+  control.correction:
+    payload_schema:
+      type: object
+      required: [finding_id, subject_event_id, rule_id, required_remedy]
+      additionalProperties: false
+      properties:
+        finding_id: { $ref: "#/$defs/FindingId" }
+        subject_event_id: { $ref: "#/$defs/EventId" }
+        rule_id: { type: string, maxLength: 64 }
+        required_remedy: { type: string, enum: [resend_on_contract, retract, acknowledge_rule] }
+        note: { type: string, maxLength: 500 }
+
+  control.ack:
+    payload_schema:
+      type: object
+      required: [finding_id]
+      additionalProperties: false
+      properties:
+        finding_id: { $ref: "#/$defs/FindingId" }
+
+  sentinel.escalation:
+    payload_schema:
+      type: object
+      required: [role, finding_ids, reason]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        finding_ids: { type: array, minItems: 1, items: { $ref: "#/$defs/FindingId" } }
+        reason: { type: string }
+
+  control.pause:
+    payload_schema:
+      type: object
+      required: [role, reason]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        reason: { type: string }
+
+  control.resume:
+    payload_schema:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        reason: { type: string }
+
+  # ── system ──────────────────────────────────────────────────────────────────
+  system.worker_started:
+    payload_schema:
+      type: object
+      required: [role, host, pid, worker_version, contract_hash]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        host: { type: string }
+        pid: { type: integer, minimum: 1 }
+        worker_version: { type: string }
+        contract_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+
+  system.worker_stopped:
+    payload_schema:
+      type: object
+      required: [role, host, pid]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        host: { type: string }
+        pid: { type: integer, minimum: 1 }
+
+  system.worker_error:
+    payload_schema:
+      type: object
+      required: [role, kind, detail]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        kind: { type: string, enum: [snapshot_mismatch, contract_drift, runner_failure, redis_failure, other] }
+        detail: { type: string }
+
+  system.dlq_routed:
+    payload_schema:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        original_event_id: { $ref: "#/$defs/EventId" }
+        reason: { type: string, enum: [off_contract, delivery_cap_exceeded, contract_drift, unparseable] }
+        detail: { type: string }
+
+  system.gap_detected:
+    payload_schema:
+      type: object
+      required: [expected_seq, observed_seq]
+      additionalProperties: false
+      properties:
+        expected_seq: { type: integer, minimum: 1 }
+        observed_seq: { type: integer, minimum: 1 }
+
+  system.runner_session_started:
+    payload_schema:
+      type: object
+      required: [role, session_ref]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        session_ref: { type: string }
+
+  system.contract_upgraded:
+    payload_schema:
+      type: object
+      required: [old_hash, new_hash]
+      additionalProperties: false
+      properties:
+        old_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        new_hash: { type: string, pattern: "^[0-9a-f]{64}$" }

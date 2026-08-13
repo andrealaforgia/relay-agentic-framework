@@ -1,0 +1,260 @@
+{
+  "$defs": {
+    "BehaviourId": {
+      "pattern": "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+)|INT)$",
+      "type": "string"
+    },
+    "BehaviourKind": {
+      "enum": [
+        "ac",
+        "integration",
+        "characterization"
+      ],
+      "type": "string"
+    },
+    "EventId": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "source": {
+          "$ref": "#/$defs/Role"
+        },
+        "title": {
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "FindingId": {
+      "pattern": "^find-[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "GateId": {
+      "pattern": "^gate-[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "GateName": {
+      "enum": [
+        "code_review",
+        "test_design",
+        "mutation",
+        "security",
+        "checkpoint",
+        "open_pr"
+      ],
+      "type": "string"
+    },
+    "GitSha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "IterationId": {
+      "pattern": "^I[0-9]+$",
+      "type": "string"
+    },
+    "QuestionId": {
+      "pattern": "^q-[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "Roadmap": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "iterations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "goal": {
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/IterationId"
+              },
+              "increment": {
+                "type": "string"
+              },
+              "stories": {
+                "items": {
+                  "$ref": "#/$defs/Story"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "goal",
+              "increment",
+              "stories"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "iterations"
+      ],
+      "type": "object"
+    },
+    "Role": {
+      "enum": [
+        "owner",
+        "interpreter",
+        "analyst",
+        "specifier",
+        "builder",
+        "reviewer",
+        "qa",
+        "security",
+        "sentinel",
+        "coordinator",
+        "toolgate"
+      ],
+      "type": "string"
+    },
+    "RunId": {
+      "pattern": "^run-[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "blocker",
+        "major",
+        "minor",
+        "nit"
+      ],
+      "type": "string"
+    },
+    "Story": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_criteria": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/BehaviourId"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/StoryId"
+        },
+        "narrative": {
+          "type": "string"
+        },
+        "priority": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "size": {
+          "enum": [
+            "XS",
+            "S",
+            "M",
+            "L"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 200,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "narrative",
+        "acceptance_criteria"
+      ],
+      "type": "object"
+    },
+    "StoryId": {
+      "pattern": "^I[0-9]+\\.S[0-9]+$",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "behaviour_id": {
+      "$ref": "#/$defs/BehaviourId"
+    },
+    "command": {
+      "type": "string"
+    },
+    "commit_sha": {
+      "$ref": "#/$defs/GitSha"
+    },
+    "kind": {
+      "enum": [
+        "acceptance_test",
+        "suite",
+        "mutation",
+        "command"
+      ],
+      "type": "string"
+    },
+    "run_id": {
+      "$ref": "#/$defs/RunId"
+    },
+    "test_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "run_id",
+    "kind",
+    "commit_sha"
+  ],
+  "type": "object"
+}

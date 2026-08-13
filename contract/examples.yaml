@@ -1,0 +1,289 @@
+# One example payload per message type. A contract test asserts that
+# (a) every message type in relay-contract.yaml has an entry here, and
+# (b) every entry validates against its type's payload schema.
+# When you add a type, you must add an example — the test makes forgetting loud.
+
+chat.problem:
+  text: "Team members waste time finding a free meeting room. I want a CLI that shows free rooms now."
+
+chat.question:
+  question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  questions:
+    - text: "Which calendar system holds the room bookings?"
+      options: ["Google Calendar", "Microsoft 365", "Both"]
+      recommended: "Google Calendar"
+
+chat.answer:
+  question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  answers: ["Google Calendar"]
+
+chat.decision:
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  decision: "approve"
+  comment: "Ship it."
+
+chat.feedback:
+  text: "The room list should be sorted by floor."
+  subject_id: "I1"
+
+chat.instruction:
+  text: "From now on, prefer smaller stories."
+
+chat.roadmap_proposed:
+  narrative: "Two iterations: first see free rooms, then book them."
+  roadmap:
+    assumptions: ["Google Calendar API access is available"]
+    iterations:
+      - id: "I1"
+        goal: "See free rooms now"
+        increment: "A CLI that lists currently free rooms"
+        stories:
+          - id: "I1.S1"
+            title: "List free rooms"
+            narrative: "As a team member, I want to list free rooms now, so I can grab one."
+            priority: 1
+            risk: "low"
+            size: "S"
+            acceptance_criteria:
+              - id: "I1.S1.B1"
+                text: "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
+
+chat.checkpoint:
+  kind: "iteration"
+  subject_id: "I1"
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  summary: "Iteration I1 complete: 3 behaviours done, all gates green. Continue, re-plan, or open a PR?"
+
+chat.pr_link:
+  iteration_id: "I1"
+  pr_url: "https://github.com/acme/rooms/pull/42"
+
+chat.result:
+  text: "The increment is ready: run `rooms free` to see free rooms."
+
+chat.progress:
+  iteration_id: "I1"
+  behaviours_done: 2
+  behaviours_total: 4
+  current: "I1.S2.B1"
+  blockers: []
+
+plan.roadmap_committed:
+  intake: { mode: "greenfield" }
+  roadmap:
+    iterations:
+      - id: "I1"
+        goal: "See free rooms now"
+        increment: "A CLI that lists currently free rooms"
+        stories:
+          - id: "I1.S1"
+            title: "List free rooms"
+            narrative: "As a team member, I want to list free rooms now, so I can grab one."
+            acceptance_criteria:
+              - id: "I1.S1.B1"
+                text: "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
+
+plan.iteration_started:
+  iteration_id: "I1"
+
+plan.iteration_aborted:
+  iteration_id: "I1"
+  reason: "Owner re-planned after checkpoint feedback."
+
+plan.pr_approved:
+  iteration_id: "I1"
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+
+plan.story_done:
+  story_id: "I1.S1"
+  summary: "All behaviours accepted; mutation gate green (kill rate 94%)."
+
+plan.iteration_ready:
+  iteration_id: "I1"
+  summary: "All stories done, INT behaviour green, security gate passed."
+
+plan.stall_alert:
+  subject_id: "I1.S1.B1"
+  waiting_on: "builder"
+  since_ts: "2026-08-13T10:15:00Z"
+
+plan.roadmap_rejected:
+  reasons: ["Iteration I2 has no integration behaviour coverage: increment not demonstrable."]
+
+plan.owner_decision_needed:
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  subject_id: "I1.S1.B1"
+  reason: "Behaviour blocked after 3 attempts: review gate keeps failing on error handling."
+  options: ["Relax the finding", "Re-scope the behaviour", "Stop the iteration"]
+
+work.analysis_requested:
+  problem: "Team members waste time finding a free meeting room."
+
+work.question_raised:
+  question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  questions: ["Which calendar system holds the room bookings?"]
+
+work.answers:
+  question_id: "q-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  answers: ["Google Calendar"]
+
+work.recon_requested:
+  commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+
+work.recon_report:
+  brief_path: "docs/relay/codebase-brief.md"
+  hotspots: ["src/booking/engine.py"]
+  risk_areas: ["src/booking/engine.py", "src/legacy/sync.py"]
+  coverage_summary: "38% line coverage; booking engine untested."
+
+work.stories_ready:
+  stories:
+    - title: "List free rooms"
+      narrative: "As a team member, I want to list free rooms now, so I can grab one."
+      acceptance_criteria:
+        - "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
+      priority: 1
+      risk: "low"
+      size: "S"
+
+work.spec_requested:
+  behaviour_id: "I1.S1.B1"
+  story_id: "I1.S1"
+  iteration_id: "I1"
+  ac_text: "Given two rooms and one is booked now, when I run `rooms free`, then only the unbooked room is listed."
+  kind: "ac"
+  base_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+
+work.spec_ready:
+  behaviour_id: "I1.S1.B1"
+  test_paths: ["tests/acceptance/test_free_rooms.py"]
+  commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+  touches: ["src/rooms/cli.py"]
+
+work.judgement_requested:
+  behaviour_id: "I1.S1.B1"
+  commit_sha: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+  run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+
+work.acceptance_verdict:
+  behaviour_id: "I1.S1.B1"
+  verdict: "pass"
+  run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  reason: "AT green on the real CLI surface; no mocks in the step definitions."
+
+work.build_requested:
+  behaviour_id: "I1.S1.B1"
+  spec_commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+  test_paths: ["tests/acceptance/test_free_rooms.py"]
+
+work.rework_requested:
+  behaviour_id: "I1.S1.B1"
+  attempt: 2
+  findings:
+    - severity: "major"
+      title: "No error handling for calendar API timeouts"
+      detail: "cli.py calls the calendar client without a timeout or failure path."
+      file: "src/rooms/cli.py"
+      line: 42
+      source: "reviewer"
+
+work.built:
+  behaviour_id: "I1.S1.B1"
+  story_id: "I1.S1"
+  iteration_id: "I1"
+  commit_sha: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+  attempt: 1
+  summary: "Implemented `rooms free` against the calendar client; AT green locally."
+
+work.error:
+  behaviour_id: "I1.S1.B1"
+  kind: "push_conflict"
+  detail: "Push rejected after rebase retry; branch diverged externally."
+
+gate.requested:
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  gate: "code_review"
+  subject_kind: "behaviour"
+  subject_id: "I1.S1.B1"
+  commit_sha: "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2"
+  base_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+
+gate.verdict:
+  gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  verdict: "pass"
+  findings: []
+  score: 8.7
+
+run.requested:
+  run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  kind: "acceptance_test"
+  commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+  test_paths: ["tests/acceptance/test_free_rooms.py"]
+  behaviour_id: "I1.S1.B1"
+
+run.completed:
+  run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  kind: "acceptance_test"
+  commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+  exit_code: 1
+  duration_s: 3.4
+  output_digest: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  artifact_path: ".relay/runs/run-01J5AB3CDEF4GH5JK6MN7PQ8RS.log"
+  summary: "1 failed (expected: red verification before build)."
+
+control.correction:
+  finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  subject_event_id: "01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  rule_id: "realm.builder.no-domain-reinterpretation"
+  required_remedy: "resend_on_contract"
+  note: "work.built summary re-interprets the requirement instead of stating what now works."
+
+control.ack:
+  finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
+
+sentinel.escalation:
+  role: "builder"
+  finding_ids: ["find-01J5AB3CDEF4GH5JK6MN7PQ8RS"]
+  reason: "Three uncorrected realm violations on work.built summaries."
+
+control.pause:
+  role: "builder"
+  reason: "Escalation gate-01J5AB3CDEF4GH5JK6MN7PQ8RS pending owner decision."
+
+control.resume:
+  role: "builder"
+  reason: "Owner resolved the escalation."
+
+system.worker_started:
+  role: "builder"
+  host: "andreas-mbp"
+  pid: 4242
+  worker_version: "0.1.0"
+  contract_hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+system.worker_stopped:
+  role: "builder"
+  host: "andreas-mbp"
+  pid: 4242
+
+system.worker_error:
+  role: "builder"
+  kind: "runner_failure"
+  detail: "claude -p exited 1 after 3 retries."
+
+system.dlq_routed:
+  original_event_id: "01J5AB3CDEF4GH5JK6MN7PQ8RS"
+  reason: "off_contract"
+  detail: "vocabulary violation: 'work.done' is not allowed on edge builder>coordinator"
+
+system.gap_detected:
+  expected_seq: 41
+  observed_seq: 43
+
+system.runner_session_started:
+  role: "builder"
+  session_ref: "sess-8c1f2b"
+
+system.contract_upgraded:
+  old_hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+  new_hash: "af86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"

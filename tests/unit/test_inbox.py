@@ -66,6 +66,9 @@ def test_hook_prompt_surfaces_queued_mail_and_skips_slash_commands(
     out = _run(client, ["--swarm", "testswarm", "--hook-prompt"],
                stdin=json.dumps({"prompt": "/help"}), monkeypatch=monkeypatch, capsys=capsys)
     assert "questions.raised" in out  # mail surfaced as context
+    _run(client, ["--swarm", "testswarm", "--hook-prompt"],
+         stdin=json.dumps({"prompt": "<task-notification>noise</task-notification>"}),
+         monkeypatch=monkeypatch, capsys=capsys)
     types = [f["type"] for _s, f in client.xrange(ledger_key("testswarm"))
              if f["from"] == "owner"]
     assert types == []  # slash commands are not owner utterances

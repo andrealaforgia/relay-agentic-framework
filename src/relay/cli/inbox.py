@@ -107,7 +107,9 @@ def main() -> int:
             prompt = str(payload.get("prompt", "")).strip()
         except (json.JSONDecodeError, OSError):
             prompt = ""
-        if prompt and not prompt.startswith("/"):
+        # only human words become the owner's record: skip slash commands and
+        # synthetic blocks the session injects (<task-notification>, hook output…)
+        if prompt and not prompt.startswith("/") and not prompt.startswith("<"):
             publisher = Publisher(client, ContractValidator(load_contract()), args.swarm)
             type_ = "feedback.given" if _problem_already_stated(client, args.swarm) else "problem.stated"
             try:

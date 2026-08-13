@@ -121,3 +121,20 @@ def test_swarm_name_belongs_to_one_project(tmp_path: Path) -> None:
     assert _claim_swarm("myapp", a) is True
     assert _claim_swarm("myapp", a) is True   # same project re-claims freely
     assert _claim_swarm("myapp", b) is False  # a different folder may not share the ledger
+
+
+def test_inbox_drain_returns_immediately_on_real_redis(capsys, monkeypatch) -> None:
+    """BLOCK 0 means 'forever' in real Redis (fakeredis hides this): a plain
+    drain with an empty queue must return instantly, not hang."""
+    import io
+    import time as _time
+
+    from relay.cli import inbox
+
+    monkeypatch.setattr("sys.argv", ["relay-inbox", "--swarm", "drain-test"])
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    started = _time.monotonic()
+    inbox.main()
+    elapsed = _time.monotonic() - started
+    assert elapsed < 2.0, f"drain blocked for {elapsed:.1f}s"
+    assert "(no relay mail)" in capsys.readouterr().out

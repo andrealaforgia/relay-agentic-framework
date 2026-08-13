@@ -64,7 +64,10 @@ def read_new(
     block_ms: int = 0,
     count: int = 16,
 ) -> list[Delivery]:
-    reply = client.xreadgroup(group, consumer, {stream: ">"}, count=count, block=block_ms)
+    # Redis semantics trap: BLOCK 0 means block FOREVER. block_ms <= 0 here
+    # means "return immediately" — so it must map to no BLOCK at all.
+    block = block_ms if block_ms > 0 else None
+    reply = client.xreadgroup(group, consumer, {stream: ">"}, count=count, block=block)
     return _to_deliveries(reply)
 
 

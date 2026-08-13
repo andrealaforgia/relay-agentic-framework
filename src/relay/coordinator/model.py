@@ -106,6 +106,9 @@ class SwarmState:
     runs: dict[str, RunInfo] = field(default_factory=dict)
     # ordering as authored in the roadmap; INT behaviours appended last per iteration
     behaviour_order: list[str] = field(default_factory=list)
+    # last chat.progress announced, as (iteration_id, behaviours_done) — derived
+    # from the ledger so a restarted coordinator never re-announces
+    last_progress: tuple[str, int] | None = None
 
     def iteration_behaviours(self, iteration_id: str) -> list[Behaviour]:
         return [

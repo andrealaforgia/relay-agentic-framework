@@ -54,7 +54,6 @@ class Dispatcher:
         self._policy = policy
         self._git = git
         self._branches_ensured: set[str] = set()
-        self._last_progress: tuple[str, int] | None = None
 
     # ── entry point ──────────────────────────────────────────────────────────
 
@@ -295,7 +294,7 @@ class Dispatcher:
         behaviours = state.iteration_behaviours(target.id)
         done = sum(1 for b in behaviours if b.state == BehaviourState.DONE)
         marker = (target.id, done)
-        if marker == self._last_progress:
+        if marker == state.last_progress:
             return 0
         current = next((b.id for b in behaviours if b.state not in TERMINAL_STATES
                         and b.state != BehaviourState.PLANNED), "")

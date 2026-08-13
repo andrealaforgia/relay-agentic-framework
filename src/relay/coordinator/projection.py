@@ -246,6 +246,10 @@ def _acceptance_verdict(state: SwarmState, env: Envelope) -> None:
         b.last_fail_reason = str(env.payload.get("reason") or "acceptance judgement failed")
 
 
+def _progress_announced(state: SwarmState, env: Envelope) -> None:
+    state.last_progress = (str(env.payload["iteration_id"]), int(env.payload["behaviours_done"]))
+
+
 def _owner_decision_needed(state: SwarmState, env: Envelope) -> None:
     b = state.behaviours.get(str(env.payload["subject_id"]))
     if b is not None:
@@ -260,6 +264,7 @@ _HANDLERS = {
     "plan.story_done": _story_done_announced,
     "plan.iteration_ready": _iteration_ready_announced,
     "plan.owner_decision_needed": _owner_decision_needed,
+    "chat.progress": _progress_announced,
     "work.spec_requested": _spec_requested,
     "work.spec_ready": _spec_ready,
     "work.build_requested": _build_requested,

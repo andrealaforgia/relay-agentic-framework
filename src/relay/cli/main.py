@@ -83,7 +83,7 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         sp.run(["git", "commit", "-qm", "Initial commit (relay init)"], cwd=project, check=True)
         console.print("[green]✓[/green] initial commit created")
 
-    profiles = write_profiles(project)
+    profiles = write_profiles(project, swarm)
     console.print(f"[green]✓[/green] {len(profiles)} permission profiles → {profiles[0].parent}")
 
     gates_src = Path(__file__).resolve().parents[3] / "policies" / "gates.yaml"
@@ -153,7 +153,14 @@ def up(
         _initialize(project, swarm or project.name, "uv run pytest -q {test_paths}")
     name = swarm or swarm_name(project)
 
+    from relay.bus import groups as groups_mod
+    from relay.bus.keys import group_name, ledger_key
+    from relay.cli.profiles import write_profiles
+
     console.print(f"[green]✓[/green] {redisctl.ensure_running(procs.state_root())}")
+    write_profiles(project, name)  # keep permission profiles + hooks current
+    for role in ("interpreter", "owner"):  # interpreter mail queues even before chat opens
+        groups_mod.ensure_group(get_client(), ledger_key(name), group_name(role))
     selected = [r.strip() for r in roles.split(",") if r.strip()]
     if not selected:
         from relay.coordinator.policy import Policy
@@ -209,31 +216,75 @@ def down(swarm: str = SwarmOpt) -> None:
         console.print(f"swarm '{name}' is down — `relay up` resumes exactly here")
 
 
+NATIVE_SESSION_SUFFIX = """
+
+== Session mode ==
+You are the Interpreter, running as THIS Claude Code session. The human
+talking to you here is the Owner. Speak to them directly — that is your
+voice. Everything for the Analyst or the Coordinator goes through relay-send
+on the bus; your terminal text is not work product for them.
+
+Relay mail (analyst questions, checkpoints, escalations) reaches you
+automatically: it is injected when you finish a turn and alongside whatever
+the Owner types. When you have just dispatched work downstream and expect a
+reply (e.g. after work.analysis_requested), do not end your turn in silence —
+run `relay-inbox --swarm {swarm} --wait 240` to wait for the reply, then
+brief the Owner on what arrived. Check `relay-inbox --swarm {swarm}` at the
+start of the conversation for anything already waiting.
+
+The Owner's words are recorded on the ledger automatically — never re-post
+them. Mint ids with `relay-id q` / `relay-id gate`. Never leave the Owner
+without a response.
+"""
+
+
 @app.command()
-def chat(swarm: str = SwarmOpt) -> None:
-    """A live Claude session with the Interpreter (streams replies, keeps context)."""
+def chat(
+    swarm: str = SwarmOpt,
+    new: bool = typer.Option(False, "--new", help="Start a fresh conversation instead of continuing"),
+) -> None:
+    """Open the Interpreter: a native Claude Code session wired to the swarm."""
+    import os
     import tomllib
 
+    from relay.bus import groups as groups_mod
+    from relay.bus.keys import group_name, ledger_key
     from relay.cli import procs
     from relay.cli.context import find_project
-    from relay.cli.interpreter_session import InterpreterSession
-    from relay.cli.profiles import settings_path
+    from relay.cli.profiles import settings_path, write_profiles
 
     project = find_project()
     name = _swarm(swarm)
+
+    # mail must queue even while no session is open
+    client = get_client()
+    for role in ("interpreter", "owner"):
+        groups_mod.ensure_group(client, ledger_key(name), group_name(role))
+    write_profiles(project, name)  # keep hooks/permissions current
+
     config = tomllib.loads((project / "relay.toml").read_text())
-    roles_cfg = config.get("roles") or {}
-    interp_cfg = roles_cfg.get("interpreter") or {}
-    settings = settings_path(project, "interpreter")
-    playbook = Path(__file__).resolve().parents[3] / "roles" / "interpreter.md"
-    InterpreterSession(
-        swarm=name,
-        project=project,
-        model=interp_cfg.get("model"),
-        settings=settings if settings.exists() else None,
-        playbook_path=playbook,
-        state_dir=procs.state_root() / name / "interpreter",
-    ).run()
+    interp_cfg = (config.get("roles") or {}).get("interpreter") or {}
+    playbook = (Path(__file__).resolve().parents[3] / "roles" / "interpreter.md").read_text()
+    system_prompt = playbook + NATIVE_SESSION_SUFFIX.format(swarm=name)
+
+    marker = procs.state_root() / name / "interpreter" / "native-session"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    cmd = ["claude",
+           "--append-system-prompt", system_prompt,
+           "--settings", str(settings_path(project, "interpreter")),
+           "--model", str(interp_cfg.get("model") or "opus")]
+    if marker.exists() and not new:
+        cmd.append("--continue")
+        kickoff = None
+    else:
+        marker.write_text("started")
+        kickoff = ("Introduce yourself to the Owner in two sentences, check "
+                   f"`relay-inbox --swarm {name}` for anything already waiting, "
+                   "and ask for their problem if there is none.")
+    if kickoff:
+        cmd.append(kickoff)
+    os.chdir(project)
+    os.execvp("claude", cmd)
 
 
 @app.command()

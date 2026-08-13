@@ -1,0 +1,19 @@
+# Gate policy. The DECIDED defaults are review+qa per behaviour, mutation per
+# story, security per iteration — they ship commented out until Phase 2 lands
+# the gate assistants. The specifier's acceptance judgement is always
+# mandatory and is not a policy entry. No timeout ever auto-approves.
+#
+# per_behaviour:
+#   - { gate: code_review, role: reviewer, timeout_s: 1800, retries: 1 }
+#   - { gate: test_design, role: qa,       timeout_s: 1800, retries: 1 }
+# per_story:
+#   - { gate: mutation,    role: qa,       timeout_s: 3600, retries: 1 }
+# per_iteration:
+#   - { gate: security,    role: security, timeout_s: 3600, retries: 1 }
+
+per_behaviour: []
+per_story: []
+per_iteration: []
+
+wip_limit: 1
+max_attempts: 3

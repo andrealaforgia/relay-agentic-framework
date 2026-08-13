@@ -106,6 +106,8 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         "[commands]\n"
         f'acceptance_test = "{test_command}"\n'
         '# suite = "uv run pytest -q"\n\n'
+        "[ui]\n"
+        'terminal = "iterm"   # window app for `relay up --windows`: iterm | terminal\n\n'
         "[roles.interpreter]\n"
         'runner = "claude"\nmodel = "opus"\n\n'
         "[roles.analyst]\n"
@@ -188,7 +190,10 @@ def up(
     if tmux:
         _open_tmux(name, selected)
     if windows:
-        _open_windows(name, selected)
+        import tomllib
+
+        ui_cfg = tomllib.loads((project / "relay.toml").read_text()).get("ui") or {}
+        _open_windows(name, selected, terminal=str(ui_cfg.get("terminal", "iterm")))
 
 
 def _claim_swarm(name: str, project: Path) -> bool:
@@ -210,24 +215,47 @@ def _claim_swarm(name: str, project: Path) -> bool:
     return True
 
 
-def _open_windows(name: str, roles: list[str]) -> None:
-    """One read-only Terminal window per assistant + one mission-control watch.
+def _open_windows(name: str, roles: list[str], terminal: str = "iterm") -> None:
+    """One read-only viewer window per assistant + one mission-control watch.
 
     Viewers only: they follow logs and the stream, deliver nothing, and can be
-    closed at any time without affecting the swarm.
+    closed at any time without affecting the swarm. The terminal app comes
+    from [ui] terminal in relay.toml — iTerm by default.
     """
     import platform
 
     if platform.system() != "Darwin":
-        console.print("[yellow]•[/yellow] --windows is macOS Terminal.app only — use --tmux here")
+        console.print("[yellow]•[/yellow] --windows is macOS-only — use --tmux here")
         return
     commands = [f"relay watch --swarm {name}"] + [f"relay tail {r} --swarm {name}" for r in roles]
+
+    def _iterm(command: str) -> bool:
+        script = (f'tell application "iTerm"\n'
+                  f'  create window with default profile command "{command}"\n'
+                  f'end tell')
+        return sp.run(["osascript", "-e", script], capture_output=True).returncode == 0
+
+    def _terminal_app(command: str) -> bool:
+        return sp.run(["osascript", "-e",
+                       f'tell application "Terminal" to do script "{command}"'],
+                      capture_output=True).returncode == 0
+
+    open_one = _iterm if terminal.lower() in ("iterm", "iterm2") else _terminal_app
+    app_name = "iTerm" if open_one is _iterm else "Terminal"
+    opened = 0
     for command in commands:
-        sp.run(["osascript", "-e",
-                f'tell application "Terminal" to do script "{command}"'],
-               capture_output=True)
-    sp.run(["osascript", "-e", 'tell application "Terminal" to activate'], capture_output=True)
-    console.print(f"[green]✓[/green] {len(commands)} Terminal windows opened (read-only viewers)")
+        if not open_one(command):
+            if open_one is _iterm:  # iTerm missing/unscriptable → fall back once, loudly
+                console.print("[yellow]•[/yellow] iTerm not reachable — falling back to Terminal.app "
+                              '(set [ui] terminal = "terminal" in relay.toml to silence this)')
+                open_one, app_name = _terminal_app, "Terminal"
+                if open_one(command):
+                    opened += 1
+                continue
+        else:
+            opened += 1
+    sp.run(["osascript", "-e", f'tell application "{app_name}" to activate'], capture_output=True)
+    console.print(f"[green]✓[/green] {opened} {app_name} windows opened (read-only viewers)")
 
 
 def _open_tmux(name: str, roles: list[str]) -> None:

@@ -93,6 +93,11 @@ class OwnerChat:
         env = delivery.envelope
         if env.to_role == "owner":
             self._render(env)
+        elif env.plane not in ("system",) and env.from_role != "owner":
+            # activity trace: the owner can always see the swarm working
+            ref = f" [{env.behaviour_id or env.story_id or env.iteration_id}]" \
+                if (env.behaviour_id or env.story_id or env.iteration_id) else ""
+            console.print(f"[dim]· {env.from_role} → {env.to_role} · {env.type}{ref}[/dim]")
         groups.ack(self.client, self.stream, self.group, delivery.stream_id)
 
     # ── input ────────────────────────────────────────────────────────────────

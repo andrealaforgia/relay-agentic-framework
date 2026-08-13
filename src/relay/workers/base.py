@@ -143,10 +143,18 @@ class Worker:
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
             return
 
+        started = time.monotonic()
+        print(f"[{_now()}] handling {env.type} from {env.from_role} ({env.event_id})", flush=True)
         result_id = self.handle(env)
+        outcome = f"reply {result_id}" if result_id is not None else "no result (see above)"
+        print(f"[{_now()}] done in {time.monotonic() - started:.0f}s — {outcome}", flush=True)
         if result_id is not None:
             dedup.mark_done(self.client, self.swarm, self.role, env.event_id, result_id)
         groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+
+
+def _now() -> str:
+    return time.strftime("%H:%M:%S")
 
 
 def _version() -> str:

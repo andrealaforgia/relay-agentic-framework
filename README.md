@@ -66,5 +66,9 @@ every read, and the generated models/docs are drift-tested in CI.
 
 ## Status
 
-Under active development. Phase 0 (contract kernel + bus spine) in progress. See
-`docs/DECISIONS.md` for design rationale and the phased roadmap.
+Under active development. Phase 0 (contract kernel + bus spine) and the Phase 1 core
+(coordinator, toolgate, chain workers, chat/watch) are complete: a full engagement runs
+end-to-end with zero model calls in the test suite (`tests/integration/test_full_relay_no_llm.py`),
+including exact resume after a mid-engagement crash. Next: live demo with real runners, then
+Phase 2 (reviewer/qa/security gates, PR flow, legacy intake). See `docs/DECISIONS.md` for
+design rationale and the phased roadmap.

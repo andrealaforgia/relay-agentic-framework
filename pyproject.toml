@@ -23,7 +23,7 @@ relay-send = "relay.cli.send:main"
 [dependency-groups]
 dev = [
     "pytest>=8.2",
-    "fakeredis>=2.23",
+    "fakeredis[lua]>=2.23",
     "mypy>=1.10",
     "types-pyyaml",
 ]

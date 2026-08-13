@@ -128,7 +128,19 @@ class ChainWorker(Worker):
                 gitops.remove_worktree(self.workspace, worktree)
 
     def _run_turn_loop(self, env: Envelope, cwd: Path) -> str | None:
-        base_prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
+        corrections = self.drain_corrections()
+        correction_block = ""
+        if corrections:
+            notes = "\n".join(
+                f"- [{c.payload.get('rule_id')}] {c.payload.get('required_remedy')}: "
+                f"{c.payload.get('note', '')} (re: event {c.payload.get('subject_event_id')})"
+                for c in corrections
+            )
+            correction_block = (
+                "\n\n== Sentinel corrections (already acked; apply them in this turn) ==\n"
+                + notes
+            )
+        base_prompt = correction_block + self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
             role=self.role,
             swarm=self.swarm,
             event_id=env.event_id,

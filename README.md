@@ -66,9 +66,12 @@ every read, and the generated models/docs are drift-tested in CI.
 
 ## Status
 
-Under active development. Phase 0 (contract kernel + bus spine) and the Phase 1 core
-(coordinator, toolgate, chain workers, chat/watch) are complete: a full engagement runs
-end-to-end with zero model calls in the test suite (`tests/integration/test_full_relay_no_llm.py`),
-including exact resume after a mid-engagement crash. Next: live demo with real runners, then
-Phase 2 (reviewer/qa/security gates, PR flow, legacy intake). See `docs/DECISIONS.md` for
-design rationale and the phased roadmap.
+Phases 0–3 are complete: contract kernel + bus spine; the end-to-end delivery loop
+(coordinator, toolgate, specifier/builder, live-session Interpreter in `relay chat`);
+the quality gates (reviewer, qa incl. mutation-survivor judgment, security) with PR flow
+and legacy intake; and the sentinel + control plane, Codex runner, per-role Redis ACLs,
+and `--tmux`. A full engagement runs with zero model calls in the test suite
+(`tests/integration/test_full_relay_no_llm.py`), including exact resume after a
+mid-engagement crash. Deferred: RelayUI (web progress radiator), HMAC message provenance.
+See `docs/DECISIONS.md` for design rationale and `docs/OPERATIONS.md` for running it,
+single-machine or clustered.

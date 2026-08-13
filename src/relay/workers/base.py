@@ -43,6 +43,10 @@ class Worker:
         self.group = group_name(role)
         self.consumer = f"{role}@{socket.gethostname()}#{os.getpid()}"
         self._stopping = False
+        self._paused = False
+        self._drain_pel_next_step = False
+        # corrections received from the sentinel, surfaced to the next model turn
+        self.pending_corrections: list[Envelope] = []
 
     # ── subclass surface ─────────────────────────────────────────────────────
 
@@ -105,6 +109,10 @@ class Worker:
 
     def step(self, block_ms: int = 5000) -> int:
         """One read cycle. Returns how many deliveries were processed."""
+        if self._drain_pel_next_step and not self._paused:
+            self._drain_pel_next_step = False
+            for delivery in groups.read_pending(self.client, self.stream, self.group, self.consumer):
+                self._process(delivery)
         deliveries = groups.read_new(
             self.client, self.stream, self.group, self.consumer, block_ms=block_ms
         )
@@ -137,8 +145,16 @@ class Worker:
 
     def _process(self, delivery: groups.Delivery) -> None:
         env = delivery.envelope
+        if env.to_role == self.role and env.plane == "control":
+            self._handle_control(env)
+            groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+            return
         if not self.wants(env):
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+            return
+        if self._paused:
+            # a paused role leaves work in the PEL: nothing is lost, nothing
+            # is processed until control.resume
             return
         if dedup.already_done(self.client, self.swarm, self.role, env.event_id):
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
@@ -165,6 +181,35 @@ class Worker:
         if result_id is not None:
             dedup.mark_done(self.client, self.swarm, self.role, env.event_id, result_id)
         groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+
+
+    def _handle_control(self, env: Envelope) -> None:
+        """Control plane: deterministic worker duties, never the model's.
+
+        The ack is published by the WORKER on receipt — whether the model's
+        behaviour then changes is judged by the sentinel from later traffic.
+        """
+        if env.type == "control.correction":
+            print(f"[{_now()}] correction from sentinel: {env.payload.get('rule_id')}", flush=True)
+            self.pending_corrections.append(env)
+            self.publisher.send(
+                self.role, "sentinel", "control.ack",
+                {"finding_id": env.payload["finding_id"]},
+                in_reply_to=env.event_id,
+            )
+        elif env.type == "control.pause":
+            print(f"[{_now()}] PAUSED by coordinator: {env.payload.get('reason', '')}", flush=True)
+            self._paused = True
+            self.heartbeat(status="paused")
+        elif env.type == "control.resume":
+            print(f"[{_now()}] resumed", flush=True)
+            self._paused = False
+            self._drain_pel_next_step = True  # work parked during the pause
+            self.heartbeat(status="idle")
+
+    def drain_corrections(self) -> list[Envelope]:
+        corrections, self.pending_corrections = self.pending_corrections, []
+        return corrections
 
 
 def _now() -> str:

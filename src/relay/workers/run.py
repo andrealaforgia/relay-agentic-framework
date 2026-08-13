@@ -37,20 +37,29 @@ def _load_config(project: Path) -> dict[str, object]:
     return {}
 
 
+WRITING_ROLES = ("specifier", "builder")
+
+
 def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
     from relay.cli.profiles import settings_path
 
     roles_cfg = config.get("roles")
     role_cfg = (roles_cfg.get(role) or {}) if isinstance(roles_cfg, dict) else {}
     runner_name = role_cfg.get("runner", "claude")
+    model = role_cfg.get("model") or ("opus" if role == "sentinel" else None)
+    if runner_name == "codex":
+        from relay.runners.codex import CodexRunner
+
+        sandbox = "workspace-write" if role in WRITING_ROLES else "read-only"
+        return CodexRunner(sandbox=str(role_cfg.get("sandbox") or sandbox), model=model)
     if runner_name != "claude":
-        raise SystemExit(f"runner '{runner_name}' not available yet (Phase 3 adds codex)")
+        raise SystemExit(f"unknown runner '{runner_name}' (claude | codex)")
     settings = role_cfg.get("settings")  # explicit override wins
     default_settings = settings_path(project, role)
     resolved = Path(str(settings)) if settings else (
         default_settings if default_settings.exists() else None
     )
-    return ClaudeRunner(model=role_cfg.get("model"), settings_path=resolved)
+    return ClaudeRunner(model=model, settings_path=resolved)
 
 
 def _playbook_dir() -> Path:
@@ -76,6 +85,16 @@ def main() -> int:
         commands_raw = config.get("commands")
         commands = commands_raw if isinstance(commands_raw, dict) else {}
         worker = Toolgate(args.swarm, project, commands=commands)
+    elif args.role == "sentinel":
+        from relay.workers.sentinel import SentinelWorker
+
+        worker = SentinelWorker(
+            args.swarm,
+            runner=_runner_for(args.role, config, project),
+            playbook_path=_playbook_dir() / "sentinel.md",
+            workspace=project,
+            state_dir=state_dir,
+        )
     elif args.role in CHAIN_ROLES:
         worker = ChainWorker(
             args.swarm, args.role,

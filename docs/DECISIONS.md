@@ -115,6 +115,32 @@ grammar supports characterization behaviours; the coordinator refuses to dispatc
 declared `touches[]` intersect uncharacterized risk areas. "Never touch legacy code without
 characterization tests" is a dispatcher rule, not a playbook sentence.
 
+## D13 — The Interpreter is a live session, not a headless worker
+
+Andrea's feedback after the first live run: headless `claude -p` made the
+owner's conversation partner a black box. `relay chat` now hosts the
+Interpreter as a persistent stream-json Claude session: replies stream in
+live, context spans the engagement (resumable), and bus events are fed into
+the conversation. Owner utterances are recorded on the ledger BEFORE the
+model sees them; the Interpreter's formal moves still go through relay-send.
+The interpreter→owner conversational leg lives in the session transcript
+rather than the ledger — the formal artifacts (roadmap commits, decisions,
+checkpoints) remain fully audited. Chat closed = interpreter offline; its
+mail waits. Every other worker streams its activity (tool calls, text) into
+its log and presence status, so `relay watch` answers "is it stuck?" at a
+glance.
+
+## D14 — Sentinel: mechanical first, model second; corrections are worker duty
+
+The sentinel's cheap, deterministic checks live in code (verdicts citing
+runs that never completed, gate verdicts for unknown gates, sequence gaps)
+and publish corrections without a model. Only the semantic realm audit
+("provenance, not vocabulary") spends model turns, in batches. The culprit's
+WORKER acks corrections mechanically and injects them into the next model
+turn — an ignored sentinel is structurally impossible, and repeat offenders
+escalate to the interpreter (once per role). `control.pause` is enforced by
+the worker loop: parked work stays in the PEL, `resume` drains it.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

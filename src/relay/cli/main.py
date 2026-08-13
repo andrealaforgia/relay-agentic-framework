@@ -140,6 +140,7 @@ def up(
     folder: Path = typer.Argument(Path("."), help="Project directory"),
     swarm: str = SwarmOpt,
     roles: str = typer.Option("", "--roles", help="Comma-separated subset (default: all Phase-1 roles)"),
+    tmux: bool = typer.Option(False, "--tmux", help="Open a tmux session: watch + per-role tails"),
 ) -> None:
     """Start the swarm for a project (initializing it on first run)."""
     from relay.cli import procs, redisctl
@@ -171,6 +172,26 @@ def up(
     console.print(f"\nswarm '[bold]{name}[/bold]' is up — next, in this folder:")
     console.print("  relay chat     (terminal 1 — talk to the swarm)")
     console.print("  relay watch    (terminal 2 — live board)")
+    if tmux:
+        _open_tmux(name, selected)
+
+
+def _open_tmux(name: str, roles: list[str]) -> None:
+    import shutil as _shutil
+
+    if _shutil.which("tmux") is None:
+        console.print("[yellow]•[/yellow] tmux not installed — skipping --tmux")
+        return
+    session = f"relay-{name}"
+    sp.run(["tmux", "kill-session", "-t", session], capture_output=True)
+    sp.run(["tmux", "new-session", "-d", "-s", session, "-n", "watch",
+            f"relay watch --swarm {name}"], check=True)
+    sp.run(["tmux", "set-option", "-t", session, "mouse", "on"], capture_output=True)
+    for role in roles:
+        sp.run(["tmux", "new-window", "-t", session, "-n", role,
+                f"relay tail {role} --swarm {name}"], check=True)
+    sp.run(["tmux", "select-window", "-t", f"{session}:watch"], capture_output=True)
+    console.print(f"[green]✓[/green] tmux session ready (mouse on):  tmux attach -t {session}")
 
 
 @app.command()
@@ -248,6 +269,73 @@ def tail(
                     _time.sleep(0.5)
         except KeyboardInterrupt:
             pass
+
+
+@app.command("acl")
+def acl_gen(
+    swarm: str = SwarmOpt,
+    out: Path = typer.Option(None, "--out", help="Write the ACL script here (default: stdout)"),
+) -> None:
+    """Generate per-role Redis ACL provisioning commands for a multi-machine hub.
+
+    One user per role, scoped to this swarm's keys, no admin commands — a
+    compromised builder credential cannot read another swarm or reconfigure
+    the hub. Run the output through redis-cli ON THE HUB, then distribute
+    each credential to its host via REDIS_USERNAME/REDIS_PASSWORD.
+    """
+    import secrets
+
+    name = _swarm(swarm)
+    roles = ["coordinator", "toolgate", "interpreter", "analyst", "specifier",
+             "builder", "reviewer", "qa", "security", "sentinel", "owner"]
+    commands = ("+xadd +xreadgroup +xack +xautoclaim +xpending +xrange +xrevrange "
+                "+xlen +xgroup +hget +hset +get +set +del +incr +scan +ping "
+                "+script +evalsha +eval +info +config|get")
+    lines = [f"# Redis ACLs for swarm '{name}' — run on the hub via redis-cli, then",
+             f"# `ACL SAVE`. Rotate by re-running; distribute via env, never git.",
+             ""]
+    for role in roles:
+        password = secrets.token_urlsafe(24)
+        lines.append(
+            f"ACL SETUSER relay-{name}-{role} on >{password} "
+            f"~relay:{name}:* {commands}"
+        )
+        lines.append(f"#   {role}@host: export REDIS_USERNAME=relay-{name}-{role} "
+                     f"REDIS_PASSWORD={password}")
+    text = "\n".join(lines) + "\n"
+    if out:
+        out.write_text(text)
+        out.chmod(0o600)
+        console.print(f"[green]✓[/green] {out} (0600) — apply on the hub, then delete")
+    else:
+        print(text)
+
+
+@app.command()
+def pause(
+    role: str = typer.Argument(..., help="Assistant role to pause"),
+    swarm: str = SwarmOpt,
+    reason: str = typer.Option("operator pause", "--reason"),
+) -> None:
+    """Pause a role's work intake (its mail waits in the PEL; nothing is lost)."""
+    from relay.bus.publisher import Publisher
+
+    publisher = Publisher(get_client(), ContractValidator(load_contract()), _swarm(swarm))
+    publisher.send("coordinator", role, "control.pause", {"role": role, "reason": reason})
+    console.print(f"[yellow]•[/yellow] {role} paused — resume with: relay resume {role}")
+
+
+@app.command()
+def resume(
+    role: str = typer.Argument(..., help="Assistant role to resume"),
+    swarm: str = SwarmOpt,
+) -> None:
+    """Resume a paused role; parked work is processed immediately."""
+    from relay.bus.publisher import Publisher
+
+    publisher = Publisher(get_client(), ContractValidator(load_contract()), _swarm(swarm))
+    publisher.send("coordinator", role, "control.resume", {"role": role})
+    console.print(f"[green]✓[/green] {role} resumed")
 
 
 # ── observability / audit ─────────────────────────────────────────────────────

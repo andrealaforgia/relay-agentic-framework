@@ -236,14 +236,22 @@ def _open_windows(name: str, roles: list[str], terminal: str = "iterm") -> None:
     """
     import platform
 
+    import shutil as _shutil
+
     if platform.system() != "Darwin":
         console.print("[yellow]•[/yellow] --windows is macOS-only — use --tmux here")
         return
-    commands = [f"relay watch --swarm {name}"] + [f"relay tail {r} --swarm {name}" for r in roles]
+    # iTerm runs the command DIRECTLY (no shell, bare launchd PATH), so use the
+    # absolute relay path and wrap in a login shell for the user's environment
+    relay_bin = _shutil.which("relay") or "relay"
+    commands = [f"{relay_bin} watch --swarm {name}"] + [
+        f"{relay_bin} tail {r} --swarm {name}" for r in roles
+    ]
 
     def _iterm(command: str) -> bool:
+        shell_command = f"/bin/zsh -lc '{command}'"
         script = (f'tell application "iTerm"\n'
-                  f'  create window with default profile command "{command}"\n'
+                  f'  create window with default profile command "{shell_command}"\n'
                   f'end tell')
         return sp.run(["osascript", "-e", script], capture_output=True).returncode == 0
 

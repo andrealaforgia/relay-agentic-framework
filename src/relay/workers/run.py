@@ -28,17 +28,20 @@ def _load_config(project: Path) -> dict[str, object]:
     return {}
 
 
-def _runner_for(role: str, config: dict[str, object]) -> Runner:
+def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
+    from relay.cli.profiles import settings_path
+
     roles_cfg = config.get("roles")
     role_cfg = (roles_cfg.get(role) or {}) if isinstance(roles_cfg, dict) else {}
     runner_name = role_cfg.get("runner", "claude")
     if runner_name != "claude":
         raise SystemExit(f"runner '{runner_name}' not available yet (Phase 3 adds codex)")
-    settings = role_cfg.get("settings")
-    return ClaudeRunner(
-        model=role_cfg.get("model"),
-        settings_path=Path(settings) if settings else None,
+    settings = role_cfg.get("settings")  # explicit override wins
+    default_settings = settings_path(project, role)
+    resolved = Path(str(settings)) if settings else (
+        default_settings if default_settings.exists() else None
     )
+    return ClaudeRunner(model=role_cfg.get("model"), settings_path=resolved)
 
 
 def _playbook_dir() -> Path:
@@ -68,7 +71,7 @@ def main() -> int:
     elif args.role in CHAIN_ROLES:
         worker = ChainWorker(
             args.swarm, args.role,
-            runner=_runner_for(args.role, config),
+            runner=_runner_for(args.role, config, project),
             playbook_path=_playbook_dir() / f"{args.role}.md",
             workspace=project,
             state_dir=state_dir,

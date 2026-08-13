@@ -1,0 +1,66 @@
+"""Per-role Claude permission profiles.
+
+Written by `relay init` into <project>/.relay/settings/<role>.json and picked
+up by the runner automatically. Never --dangerously-skip-permissions: in
+headless mode a denied tool is refused silently, so these allowlists ARE the
+role's capability surface — the builder can edit and run, the interpreter can
+only read, delegate, and speak through relay-send.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+_RELAY_BASH = [
+    "Bash(relay-send:*)",
+    "Bash(relay-id:*)",
+    "Bash(relay-id)",
+]
+_GIT_READ = ["Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)"]
+
+PROFILES: dict[str, dict[str, list[str]]] = {
+    # conversational roles: read + subagents + relay-send; no edits, no arbitrary shell
+    "interpreter": {
+        "allow": ["Read", "Glob", "Grep", "TodoWrite", *_RELAY_BASH, *_GIT_READ],
+        "deny": ["WebFetch", "WebSearch"],
+    },
+    "analyst": {
+        # writes problem-analysis.md / user-stories.md / codebase-brief.md
+        "allow": ["Read", "Glob", "Grep", "TodoWrite", "Task", "Write", "Edit",
+                  *_RELAY_BASH, *_GIT_READ],
+        "deny": ["WebFetch", "WebSearch"],
+    },
+    # writing roles: full workspace + shell (tests, git) — still inside the
+    # project cwd and still auditable, unlike skip-permissions
+    "specifier": {"allow": ["Read", "Glob", "Grep", "TodoWrite", "Task", "Write", "Edit", "Bash"],
+                  "deny": ["WebFetch", "WebSearch"]},
+    "builder": {"allow": ["Read", "Glob", "Grep", "TodoWrite", "Task", "Write", "Edit", "Bash"],
+                "deny": ["WebFetch", "WebSearch"]},
+    # gate roles (Phase 2): read-only + relay-send
+    "reviewer": {"allow": ["Read", "Glob", "Grep", "Task", *_RELAY_BASH, *_GIT_READ],
+                 "deny": ["Write", "Edit", "WebFetch", "WebSearch"]},
+    "qa": {"allow": ["Read", "Glob", "Grep", "Task", "Bash"],
+           "deny": ["Write", "Edit", "WebFetch", "WebSearch"]},
+    "security": {"allow": ["Read", "Glob", "Grep", "Task", "Bash"],
+                 "deny": ["Write", "Edit", "WebFetch", "WebSearch"]},
+}
+
+
+def settings_dir(project: Path) -> Path:
+    return project / ".relay" / "settings"
+
+
+def settings_path(project: Path, role: str) -> Path:
+    return settings_dir(project) / f"{role}.json"
+
+
+def write_profiles(project: Path) -> list[Path]:
+    directory = settings_dir(project)
+    directory.mkdir(parents=True, exist_ok=True)
+    written = []
+    for role, perms in PROFILES.items():
+        path = settings_path(project, role)
+        path.write_text(json.dumps({"permissions": perms}, indent=2) + "\n")
+        written.append(path)
+    return written

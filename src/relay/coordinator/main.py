@@ -24,6 +24,7 @@ from relay.coordinator.model import SwarmState
 from relay.coordinator.policy import Policy
 from relay.coordinator.projection import apply
 from relay.gitops import branch as gitops
+from relay.gitops import pr as pr_mod
 from relay.ledger.reader import read_all
 
 PRESENCE_TTL_S = 45
@@ -49,6 +50,14 @@ class Coordinator:
             GitHooks(
                 ensure_branch=lambda it: gitops.ensure_iteration_branch(project, swarm, it),
                 head_sha=lambda: gitops.head_sha(project),
+                has_history=lambda: gitops.has_history(project),
+                create_pr=lambda it: pr_mod.create_pr(
+                    project, swarm, it,
+                    title=f"Relay {swarm} — iteration {it}",
+                    body=f"Iteration {it} delivered by the relay swarm '{swarm}'. "
+                         f"See the ledger for the full audit trail.\n\n"
+                         f"🤖 Generated with the Relay Agentic Framework",
+                ),
             ),
         )
         self.state = SwarmState()

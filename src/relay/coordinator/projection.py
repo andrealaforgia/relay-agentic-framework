@@ -32,7 +32,7 @@ def project(events: Iterable[Envelope]) -> SwarmState:
     return state
 
 
-def apply(state: SwarmState, env: Envelope) -> SwarmState:  # noqa: C901 — one dispatch table
+def apply(state: SwarmState, env: Envelope) -> SwarmState:
     if env.seq is not None:
         state.last_seq = env.seq
     state.last_event_id = env.event_id
@@ -41,6 +41,14 @@ def apply(state: SwarmState, env: Envelope) -> SwarmState:  # noqa: C901 — one
     if handler is not None:
         handler(state, env)
     return state
+
+
+def _kind_of(behaviour_id: str) -> str:
+    if behaviour_id.endswith(".INT"):
+        return "integration"
+    if behaviour_id.rsplit(".", 1)[-1].startswith("CHAR"):
+        return "characterization"
+    return "ac"
 
 
 # ── roadmap / iterations ─────────────────────────────────────────────────────
@@ -68,7 +76,7 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
                     id=ac["id"],
                     iteration_id=iteration.id,
                     story_id=story.id,
-                    kind="ac",
+                    kind=_kind_of(ac["id"]),
                     ac_text=ac["text"],
                 )
                 state.behaviours[behaviour.id] = behaviour
@@ -120,6 +128,29 @@ def _iteration_ready_announced(state: SwarmState, env: Envelope) -> None:
         iteration.ready_announced = True
 
 
+def _pr_approved(state: SwarmState, env: Envelope) -> None:
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        iteration.pr_approved = True
+
+
+def _pr_opened(state: SwarmState, env: Envelope) -> None:
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        iteration.pr_opened = True
+
+
+# ── recon / legacy intake ────────────────────────────────────────────────────
+
+def _recon_requested(state: SwarmState, env: Envelope) -> None:
+    state.recon_requested = True
+
+
+def _recon_report(state: SwarmState, env: Envelope) -> None:
+    state.recon_done = True
+    state.risk_areas = [str(p) for p in env.payload.get("risk_areas", [])]
+
+
 # ── behaviour lifecycle ──────────────────────────────────────────────────────
 
 def _behaviour(state: SwarmState, env: Envelope) -> Behaviour | None:
@@ -131,6 +162,7 @@ def _spec_requested(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
     if b:
         b.state = BehaviourState.SPEC_DISPATCHED
+        b.base_sha = str(env.payload["base_sha"])
 
 
 def _spec_ready(state: SwarmState, env: Envelope) -> None:
@@ -143,10 +175,21 @@ def _spec_ready(state: SwarmState, env: Envelope) -> None:
 
 
 def _run_requested(state: SwarmState, env: Envelope) -> None:
+    run_id = str(env.payload["run_id"])
+    kind = str(env.payload["kind"])
+    if kind == "mutation":
+        story = state.stories.get(str(env.story_id)) if env.story_id else None
+        if story is not None:
+            story.mutation_run_id = run_id
+            state.runs[run_id] = RunInfo(
+                run_id=run_id, purpose=RunPurpose.MUTATION, story_id=story.id
+            )
+        return
+    if kind != "acceptance_test":
+        return
     b = _behaviour(state, env)
     if b is None:
         return
-    run_id = str(env.payload["run_id"])
     if b.state == BehaviourState.SPEC_READY:
         purpose = RunPurpose.RED_VERIFICATION
         b.state = BehaviourState.RED_PENDING
@@ -163,14 +206,23 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
     if run is None:
         return
     run.exit_code = int(env.payload["exit_code"])
-    b = state.behaviours.get(run.behaviour_id)
+    if run.purpose == RunPurpose.MUTATION:
+        return  # evidence only; qa judges via the gate
+    b = state.behaviours.get(run.behaviour_id or "")
     if b is None:
         return
     if run.purpose == RunPurpose.RED_VERIFICATION and b.state == BehaviourState.RED_PENDING:
-        # a "failing" acceptance test must actually fail before build dispatch
-        b.state = BehaviourState.RED_VERIFIED if run.exit_code != 0 else BehaviourState.RED_FAILED
+        # An 'ac'/'integration' spec must FAIL before build; a characterization
+        # spec pins current behaviour, so it must PASS (inverted).
+        expected_fail = b.kind != "characterization"
+        verified = (run.exit_code != 0) if expected_fail else (run.exit_code == 0)
+        b.state = BehaviourState.RED_VERIFIED if verified else BehaviourState.RED_FAILED
         if b.state == BehaviourState.RED_FAILED:
-            b.last_fail_reason = "red verification: the new acceptance test already passes"
+            b.last_fail_reason = (
+                "red verification: the new acceptance test already passes"
+                if expected_fail else
+                "characterization test does not pass against current behaviour"
+            )
     elif run.purpose == RunPurpose.AT_GREEN and b.state == BehaviourState.AT_RUN_PENDING:
         if run.exit_code == 0:
             b.state = BehaviourState.AT_GREEN
@@ -181,7 +233,7 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
 
 def _build_requested(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
-    if b and b.state in (BehaviourState.RED_VERIFIED,):
+    if b and b.state == BehaviourState.RED_VERIFIED:
         b.state = BehaviourState.BUILD_DISPATCHED
 
 
@@ -190,6 +242,11 @@ def _rework_requested(state: SwarmState, env: Envelope) -> None:
     if b:
         b.state = BehaviourState.BUILD_DISPATCHED
         b.attempt = int(env.payload["attempt"])
+        b.pending_gates.clear()
+        # a story-level gate failure loops back through this behaviour: the
+        # story must re-earn its gates on the next completion
+        if b.story_id and b.story_id in state.stories:
+            state.stories[b.story_id].reset_gates()
 
 
 def _built(state: SwarmState, env: Envelope) -> None:
@@ -200,32 +257,51 @@ def _built(state: SwarmState, env: Envelope) -> None:
 
 
 def _gate_requested(state: SwarmState, env: Envelope) -> None:
+    subject_kind = str(env.payload["subject_kind"])
     subject_id = str(env.payload["subject_id"])
-    b = state.behaviours.get(subject_id)
-    if b is not None and env.payload["subject_kind"] == "behaviour":
-        gate_id = str(env.payload["gate_id"])
-        b.pending_gates[gate_id] = GateInfo(
-            gate_id=gate_id, gate=str(env.payload["gate"]), subject_id=subject_id
-        )
-        if b.state == BehaviourState.AT_GREEN:
-            b.state = BehaviourState.GATES_PENDING
+    gate_id = str(env.payload["gate_id"])
+    info = GateInfo(gate_id=gate_id, gate=str(env.payload["gate"]), subject_id=subject_id)
+    if subject_kind == "behaviour":
+        b = state.behaviours.get(subject_id)
+        if b is not None:
+            b.pending_gates[gate_id] = info
+            if b.state == BehaviourState.AT_GREEN:
+                b.state = BehaviourState.GATES_PENDING
+    elif subject_kind == "story":
+        story = state.stories.get(subject_id)
+        if story is not None:
+            story.pending_gates[gate_id] = info
+    elif subject_kind == "iteration":
+        iteration = state.iterations.get(subject_id)
+        if iteration is not None:
+            iteration.pending_gates[gate_id] = info
 
 
 def _gate_verdict(state: SwarmState, env: Envelope) -> None:
     gate_id = str(env.payload["gate_id"])
+    verdict = str(env.payload["verdict"])
     for b in state.behaviours.values():
         gate = b.pending_gates.get(gate_id)
-        if gate is None:
-            continue
-        gate.verdict = str(env.payload["verdict"])
-        if b.state == BehaviourState.GATES_PENDING:
-            verdicts = [g.verdict for g in b.pending_gates.values()]
-            if any(v == "fail" for v in verdicts):
-                b.state = BehaviourState.AT_RED  # dispatcher turns this into rework
-                b.last_fail_reason = f"gate {gate.gate} failed"
-            elif all(v == "pass" for v in verdicts):
-                b.state = BehaviourState.GATES_PASSED
-        return
+        if gate is not None:
+            gate.verdict = verdict
+            if b.state == BehaviourState.GATES_PENDING:
+                verdicts = [g.verdict for g in b.pending_gates.values()]
+                if any(v == "fail" for v in verdicts):
+                    b.state = BehaviourState.AT_RED
+                    b.last_fail_reason = f"gate {gate.gate} failed"
+                elif all(v == "pass" for v in verdicts):
+                    b.state = BehaviourState.GATES_PASSED
+            return
+    for story in state.stories.values():
+        gate = story.pending_gates.get(gate_id)
+        if gate is not None:
+            gate.verdict = verdict
+            return
+    for iteration in state.iterations.values():
+        gate = iteration.pending_gates.get(gate_id)
+        if gate is not None:
+            gate.verdict = verdict
+            return
 
 
 def _judgement_requested(state: SwarmState, env: Envelope) -> None:
@@ -242,18 +318,27 @@ def _acceptance_verdict(state: SwarmState, env: Envelope) -> None:
         b.state = BehaviourState.DONE
         b.pending_gates.clear()
     else:
-        b.state = BehaviourState.AT_RED  # dispatcher decides: rework or escalate
+        b.state = BehaviourState.AT_RED
         b.last_fail_reason = str(env.payload.get("reason") or "acceptance judgement failed")
+
+
+def _owner_decision_needed(state: SwarmState, env: Envelope) -> None:
+    subject_id = str(env.payload["subject_id"])
+    b = state.behaviours.get(subject_id)
+    if b is not None:
+        b.state = BehaviourState.BLOCKED
+        return
+    story = state.stories.get(subject_id)
+    if story is not None:
+        story.escalated = True
+        return
+    iteration = state.iterations.get(subject_id)
+    if iteration is not None:
+        iteration.escalated = True
 
 
 def _progress_announced(state: SwarmState, env: Envelope) -> None:
     state.last_progress = (str(env.payload["iteration_id"]), int(env.payload["behaviours_done"]))
-
-
-def _owner_decision_needed(state: SwarmState, env: Envelope) -> None:
-    b = state.behaviours.get(str(env.payload["subject_id"]))
-    if b is not None:
-        b.state = BehaviourState.BLOCKED
 
 
 _HANDLERS = {
@@ -264,7 +349,10 @@ _HANDLERS = {
     "plan.story_done": _story_done_announced,
     "plan.iteration_ready": _iteration_ready_announced,
     "plan.owner_decision_needed": _owner_decision_needed,
-    "chat.progress": _progress_announced,
+    "plan.pr_approved": _pr_approved,
+    "plan.pr_opened": _pr_opened,
+    "work.recon_requested": _recon_requested,
+    "work.recon_report": _recon_report,
     "work.spec_requested": _spec_requested,
     "work.spec_ready": _spec_ready,
     "work.build_requested": _build_requested,
@@ -276,4 +364,5 @@ _HANDLERS = {
     "run.completed": _run_completed,
     "gate.requested": _gate_requested,
     "gate.verdict": _gate_verdict,
+    "chat.progress": _progress_announced,
 }

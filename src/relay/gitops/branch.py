@@ -42,6 +42,19 @@ def ensure_iteration_branch(project: Path, swarm: str, iteration_id: str) -> str
     return head_sha(project)
 
 
+def has_history(project: Path) -> bool:
+    """A pre-existing codebase = more than the `relay init` scaffolding commit."""
+    try:
+        count = int(_git(project, "rev-list", "--count", "HEAD"))
+    except GitError:
+        return False
+    if count > 1:
+        return True
+    files = _git(project, "ls-files").splitlines()
+    scaffolding = {".gitignore", "relay.toml", "README.md", "pyproject.toml"}
+    return len([f for f in files if f not in scaffolding]) > 0
+
+
 def commit_exists(project: Path, sha: str) -> bool:
     try:
         _git(project, "cat-file", "-e", f"{sha}^{{commit}}")

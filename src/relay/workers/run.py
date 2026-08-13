@@ -19,6 +19,15 @@ from relay.workers.chain import ChainWorker
 from relay.workers.toolgate import Toolgate
 
 CHAIN_ROLES = ("interpreter", "analyst", "specifier", "builder", "reviewer", "qa", "security")
+FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
+
+
+def resolve_policy_path(project: Path) -> Path | None:
+    """Project's own gate policy wins; the framework default otherwise."""
+    for candidate in (project / ".relay" / "gates.yaml", FRAMEWORK_ROOT / "policies" / "gates.yaml"):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _load_config(project: Path) -> dict[str, object]:
@@ -62,8 +71,7 @@ def main() -> int:
 
     worker: Worker | Coordinator
     if args.role == "coordinator":
-        policy = project / "policies" / "gates.yaml"
-        worker = Coordinator(args.swarm, project, policy_path=policy if policy.exists() else None)
+        worker = Coordinator(args.swarm, project, policy_path=resolve_policy_path(project))
     elif args.role == "toolgate":
         commands_raw = config.get("commands")
         commands = commands_raw if isinstance(commands_raw, dict) else {}

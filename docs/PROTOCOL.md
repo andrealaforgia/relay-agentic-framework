@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `2839da2ba86c3434d45186ce9828de17b3766626394b40692f16ba306d67fe86`.
+Contract version 1, hash `0c58fa1b356fe6ef9b49a22e1f0f454b3d50446b284f6157578137c6f4f19c3b`.
 
 ## Roles
 
@@ -16,7 +16,7 @@ Contract version 1, hash `2839da2ba86c3434d45186ce9828de17b3766626394b40692f16ba
 | chat | `coordinator>owner` | `chat.progress` |
 | chat | `interpreter>owner` | `chat.checkpoint`, `chat.pr_link`, `chat.question`, `chat.result`, `chat.roadmap_proposed` |
 | chat | `owner>interpreter` | `chat.answer`, `chat.decision`, `chat.feedback`, `chat.instruction`, `chat.problem` |
-| plan | `coordinator>interpreter` | `control.pause`, `control.resume`, `plan.iteration_ready`, `plan.owner_decision_needed`, `plan.roadmap_rejected`, `plan.stall_alert`, `plan.story_done` |
+| plan | `coordinator>interpreter` | `control.pause`, `control.resume`, `plan.iteration_ready`, `plan.owner_decision_needed`, `plan.pr_opened`, `plan.roadmap_rejected`, `plan.stall_alert`, `plan.story_done` |
 | plan | `interpreter>coordinator` | `plan.iteration_aborted`, `plan.iteration_started`, `plan.pr_approved`, `plan.roadmap_committed` |
 | work | `analyst>interpreter` | `work.question_raised`, `work.recon_report`, `work.stories_ready` |
 | work | `builder>coordinator` | `work.built`, `work.error` |
@@ -88,6 +88,7 @@ One JSON Schema per type lives in `contract/schema/`.
 | `plan.iteration_started` | plan | `iteration_id` |
 | `plan.owner_decision_needed` | plan | `gate_id`, `subject_id`, `reason` |
 | `plan.pr_approved` | plan | `iteration_id`, `gate_id` |
+| `plan.pr_opened` | plan | `iteration_id`, `pr_url` |
 | `plan.roadmap_committed` | plan | `roadmap`, `intake` |
 | `plan.roadmap_rejected` | plan | `reasons` |
 | `plan.stall_alert` | plan | `subject_id`, `waiting_on`, `since_ts` |

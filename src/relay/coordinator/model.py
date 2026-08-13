@@ -16,12 +16,12 @@ class BehaviourState(StrEnum):
     SPEC_DISPATCHED = "spec_dispatched"
     SPEC_READY = "spec_ready"
     RED_PENDING = "red_pending"          # red-verification run dispatched to toolgate
-    RED_FAILED = "red_failed"            # the "failing" test passed — back to specifier
+    RED_FAILED = "red_failed"            # verification outcome wrong — back to specifier
     RED_VERIFIED = "red_verified"
     BUILD_DISPATCHED = "build_dispatched"
     BUILT = "built"
     AT_RUN_PENDING = "at_run_pending"    # post-build AT run dispatched to toolgate
-    AT_RED = "at_red"                    # AT still failing after build — rework
+    AT_RED = "at_red"                    # AT failing / a gate failed — rework
     AT_GREEN = "at_green"
     GATES_PENDING = "gates_pending"
     GATES_PASSED = "gates_passed"
@@ -36,20 +36,22 @@ TERMINAL_STATES = frozenset({BehaviourState.DONE, BehaviourState.BLOCKED})
 class RunPurpose(StrEnum):
     RED_VERIFICATION = "red_verification"
     AT_GREEN = "at_green"
+    MUTATION = "mutation"
 
 
 @dataclass
 class RunInfo:
     run_id: str
     purpose: RunPurpose
-    behaviour_id: str
+    behaviour_id: str | None = None
+    story_id: str | None = None
     exit_code: int | None = None
 
 
 @dataclass
 class GateInfo:
     gate_id: str
-    gate: str
+    gate: str            # code_review | test_design | mutation | security
     subject_id: str
     verdict: str | None = None  # pass | fail
 
@@ -65,6 +67,7 @@ class Behaviour:
     attempt: int = 1
     test_paths: list[str] = field(default_factory=list)
     touches: list[str] = field(default_factory=list)
+    base_sha: str | None = None
     spec_commit: str | None = None
     built_commit: str | None = None
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
@@ -77,7 +80,22 @@ class Story:
     iteration_id: str
     title: str
     behaviour_ids: list[str] = field(default_factory=list)
-    done_announced: bool = False     # plan.story_done seen on the ledger
+    done_announced: bool = False        # plan.story_done seen on the ledger
+    mutation_run_id: str | None = None  # in-flight or judged mutation run
+    pending_gates: dict[str, GateInfo] = field(default_factory=dict)
+    escalated: bool = False
+
+    def gates_passed(self) -> bool:
+        return bool(self.pending_gates) and all(
+            g.verdict == "pass" for g in self.pending_gates.values()
+        )
+
+    def gates_failed(self) -> bool:
+        return any(g.verdict == "fail" for g in self.pending_gates.values())
+
+    def reset_gates(self) -> None:
+        self.mutation_run_id = None
+        self.pending_gates.clear()
 
 
 @dataclass
@@ -88,8 +106,20 @@ class Iteration:
     story_ids: list[str] = field(default_factory=list)
     int_behaviour_id: str = ""
     started: bool = False
-    ready_announced: bool = False    # plan.iteration_ready seen on the ledger
+    ready_announced: bool = False       # plan.iteration_ready seen on the ledger
     aborted: bool = False
+    pending_gates: dict[str, GateInfo] = field(default_factory=dict)
+    escalated: bool = False
+    pr_approved: bool = False           # plan.pr_approved seen
+    pr_opened: bool = False             # plan.pr_opened seen
+
+    def gates_passed(self) -> bool:
+        return bool(self.pending_gates) and all(
+            g.verdict == "pass" for g in self.pending_gates.values()
+        )
+
+    def gates_failed(self) -> bool:
+        return any(g.verdict == "fail" for g in self.pending_gates.values())
 
 
 @dataclass
@@ -100,6 +130,9 @@ class SwarmState:
     last_event_id: str | None = None
     roadmap_committed: bool = False
     intake_mode: str = "greenfield"
+    recon_requested: bool = False
+    recon_done: bool = False
+    risk_areas: list[str] = field(default_factory=list)
     iterations: dict[str, Iteration] = field(default_factory=dict)
     stories: dict[str, Story] = field(default_factory=dict)
     behaviours: dict[str, Behaviour] = field(default_factory=dict)
@@ -118,24 +151,25 @@ class SwarmState:
         ]
 
     def story_behaviours(self, story_id: str) -> list[Behaviour]:
-        return [
-            self.behaviours[bid]
-            for bid in self.stories[story_id].behaviour_ids
-        ]
+        return [self.behaviours[bid] for bid in self.stories[story_id].behaviour_ids]
 
     def active_iteration(self) -> Iteration | None:
         for iteration in self.iterations.values():
-            if iteration.started and not iteration.aborted and not self._iteration_done(iteration):
+            if iteration.started and not iteration.aborted and not iteration.ready_announced:
                 return iteration
         return None
 
-    def _iteration_done(self, iteration: Iteration) -> bool:
-        behaviours = self.iteration_behaviours(iteration.id)
+    def behaviours_done(self, iteration_id: str) -> bool:
+        behaviours = self.iteration_behaviours(iteration_id)
         return bool(behaviours) and all(b.state == BehaviourState.DONE for b in behaviours)
 
-    def iteration_done(self, iteration_id: str) -> bool:
-        return self._iteration_done(self.iterations[iteration_id])
-
-    def story_done(self, story_id: str) -> bool:
+    def story_behaviours_done(self, story_id: str) -> bool:
         behaviours = self.story_behaviours(story_id)
         return bool(behaviours) and all(b.state == BehaviourState.DONE for b in behaviours)
+
+    def story_char_done(self, story_id: str) -> bool:
+        """Does this story have a completed characterization behaviour?"""
+        return any(
+            b.kind == "characterization" and b.state == BehaviourState.DONE
+            for b in self.story_behaviours(story_id)
+        )

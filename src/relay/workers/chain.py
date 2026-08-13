@@ -99,6 +99,35 @@ class ChainWorker(Worker):
         if existing is not None:
             return existing
 
+        # Gate turns run in a detached worktree pinned to the reviewed SHA:
+        # reviewing the wrong code is physically impossible.
+        if env.type == "gate.requested" and env.payload.get("commit_sha"):
+            return self._handle_in_pinned_worktree(env)
+
+        return self._run_turn_loop(env, self.workspace)
+
+    def _handle_in_pinned_worktree(self, env: Envelope) -> str | None:
+        import tempfile
+
+        from relay.gitops import branch as gitops
+
+        sha = str(env.payload["commit_sha"])
+        if not gitops.commit_exists(self.workspace, sha):
+            self.publisher.send(
+                self.role, "system", "system.worker_error",
+                {"role": self.role, "kind": "other",
+                 "detail": f"gate {env.payload.get('gate_id')}: commit {sha} not present"},
+            )
+            return None
+        with tempfile.TemporaryDirectory(prefix=f"relay-gate-{self.role}-") as tmp:
+            worktree = Path(tmp) / "checkout"
+            gitops.add_detached_worktree(self.workspace, sha, worktree)
+            try:
+                return self._run_turn_loop(env, worktree)
+            finally:
+                gitops.remove_worktree(self.workspace, worktree)
+
+    def _run_turn_loop(self, env: Envelope, cwd: Path) -> str | None:
         base_prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
             role=self.role,
             swarm=self.swarm,
@@ -116,7 +145,7 @@ class ChainWorker(Worker):
         for _correction in range(MAX_CORRECTIONS + 1):
             result = self.runner.run_turn(
                 prompt=prompt,
-                cwd=self.workspace,
+                cwd=cwd,
                 session_ref=self._session_ref(),
                 timeout_s=TURN_TIMEOUT_S,
                 on_event=on_event,

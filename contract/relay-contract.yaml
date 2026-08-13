@@ -103,7 +103,7 @@ edges:
     coordinator>owner: [chat.progress]     # machine-generated status; conversation stays interpreter-only
   plan:
     interpreter>coordinator: [plan.roadmap_committed, plan.iteration_started, plan.iteration_aborted, plan.pr_approved]
-    coordinator>interpreter: [plan.story_done, plan.iteration_ready, plan.stall_alert, plan.roadmap_rejected, plan.owner_decision_needed]
+    coordinator>interpreter: [plan.story_done, plan.iteration_ready, plan.stall_alert, plan.roadmap_rejected, plan.owner_decision_needed, plan.pr_opened]
   work:
     interpreter>analyst: [work.analysis_requested, work.answers]
     analyst>interpreter: [work.question_raised, work.recon_report, work.stories_ready]
@@ -328,6 +328,15 @@ message_types:
       additionalProperties: false
       properties:
         reasons: { type: array, minItems: 1, items: { type: string } }
+
+  plan.pr_opened:
+    payload_schema:
+      type: object
+      required: [iteration_id, pr_url]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        pr_url: { type: string, pattern: "^https://" }
 
   plan.owner_decision_needed:
     payload_schema:

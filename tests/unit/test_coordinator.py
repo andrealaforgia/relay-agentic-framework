@@ -37,11 +37,16 @@ ROADMAP = {
 class MiniSwarm:
     """A single-process stand-in for the coordinator's read-apply-react loop."""
 
-    def __init__(self, client, publisher):
+    def __init__(self, client, publisher, policy=None, git=None):
         self.client = client
         self.publisher = publisher
         self.dispatcher = Dispatcher(
-            publisher, Policy(), GitHooks(ensure_branch=lambda _i: SHA_BASE, head_sha=lambda: SHA_BASE)
+            publisher, policy or Policy(), git or GitHooks(
+                ensure_branch=lambda _i: SHA_BASE,
+                head_sha=lambda: SHA_BASE,
+                has_history=lambda: False,
+                create_pr=lambda _it: "https://github.com/acme/x/pull/1",
+            )
         )
         self.state = SwarmState()
         self._applied = 0

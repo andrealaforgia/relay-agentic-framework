@@ -18,12 +18,15 @@ from relay.bus.publisher import Publisher
 from relay.coordinator.model import (
     Behaviour,
     BehaviourState,
+    GateInfo,
+    Iteration,
     RunInfo,
     RunPurpose,
+    Story,
     SwarmState,
     TERMINAL_STATES,
 )
-from relay.coordinator.policy import Policy
+from relay.coordinator.policy import GateSpec, Policy
 
 COORDINATOR = "coordinator"
 
@@ -38,14 +41,12 @@ def _new_gate_id() -> str:
 
 @dataclass
 class GitHooks:
-    """Injected git behaviour so the dispatcher stays unit-testable.
+    """Injected git behaviour so the dispatcher stays unit-testable."""
 
-    ensure_branch(iteration_id) -> head sha of the (possibly new) branch
-    head_sha() -> current head of the iteration branch
-    """
-
-    ensure_branch: Callable[[str], str]
+    ensure_branch: Callable[[str], str]     # iteration_id -> branch head sha
     head_sha: Callable[[], str]
+    has_history: Callable[[], bool]         # pre-existing codebase?
+    create_pr: Callable[[str], str]         # iteration_id -> PR url
 
 
 class Dispatcher:
@@ -58,29 +59,39 @@ class Dispatcher:
     # ── entry point ──────────────────────────────────────────────────────────
 
     def react(self, state: SwarmState) -> int:
-        """Publish whatever the protocol requires next. Returns publish count."""
+        published = self._maybe_request_recon(state)
         if not state.roadmap_committed:
-            return 0
+            return published
         if not self._roadmap_valid(state):
             self._publisher.send(
                 COORDINATOR, "interpreter", "plan.roadmap_rejected",
                 {"reasons": self._roadmap_errors(state)},
             )
             state.roadmap_committed = False
-            return 1
+            return published + 1
 
-        published = 0
         iteration = state.active_iteration()
-        if iteration is None:
-            return self._announce_completions(state)
-
-        if iteration.id not in self._branches_ensured:
-            self._git.ensure_branch(iteration.id)
-            self._branches_ensured.add(iteration.id)
-
-        published += self._advance_behaviours(state, iteration.id)
-        published += self._announce_completions(state)
+        if iteration is not None:
+            if iteration.id not in self._branches_ensured:
+                self._git.ensure_branch(iteration.id)
+                self._branches_ensured.add(iteration.id)
+            published += self._advance_behaviours(state, iteration.id)
+        published += self._advance_stories(state)
+        published += self._advance_iterations(state)
+        published += self._progress(state)
         return published
+
+    # ── legacy intake: reconnaissance before any roadmap ─────────────────────
+
+    def _maybe_request_recon(self, state: SwarmState) -> int:
+        if state.roadmap_committed or state.recon_requested or not self._git.has_history():
+            return 0
+        self._publisher.send(
+            COORDINATOR, "analyst", "work.recon_requested",
+            {"commit_sha": self._git.head_sha()},
+        )
+        state.recon_requested = True
+        return 1
 
     # ── roadmap validation (lesson 4 lives in code) ─────────────────────────
 
@@ -113,9 +124,6 @@ class Dispatcher:
         for b in in_flight:
             published += self._advance_one(state, b)
 
-        # dispatch the next PLANNED behaviour when there is wip room; the INT
-        # behaviour sits last in the order, so it is reached only when every
-        # story behaviour is terminal.
         if len(in_flight) < self._policy.wip_limit:
             for b in behaviours:
                 if b.state == BehaviourState.PLANNED:
@@ -124,6 +132,7 @@ class Dispatcher:
         return published
 
     def _dispatch_spec(self, b: Behaviour) -> int:
+        base = self._git.head_sha()
         self._publisher.send(
             COORDINATOR, "specifier", "work.spec_requested",
             {
@@ -132,11 +141,12 @@ class Dispatcher:
                 "iteration_id": b.iteration_id,
                 "ac_text": b.ac_text,
                 "kind": b.kind,
-                "base_sha": self._git.head_sha(),
+                "base_sha": base,
             },
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
         )
-        b.state = BehaviourState.SPEC_DISPATCHED  # mirrored when own event replays
+        b.state = BehaviourState.SPEC_DISPATCHED
+        b.base_sha = base
         return 1
 
     def _advance_one(self, state: SwarmState, b: Behaviour) -> int:
@@ -145,6 +155,9 @@ class Dispatcher:
         if b.state == BehaviourState.RED_FAILED:
             return self._dispatch_spec(b)
         if b.state == BehaviourState.RED_VERIFIED:
+            blocked = self._block_uncharacterized(state, b)
+            if blocked:
+                return blocked
             self._publisher.send(
                 COORDINATOR, "builder", "work.build_requested",
                 {
@@ -159,11 +172,63 @@ class Dispatcher:
         if b.state == BehaviourState.BUILT:
             return self._request_run(state, b, RunPurpose.AT_GREEN)
         if b.state == BehaviourState.AT_RED:
-            return self._rework_or_escalate(b)
-        if b.state in (BehaviourState.AT_GREEN, BehaviourState.GATES_PASSED):
-            # Phase 1: no optional gates — straight to the specifier's judgement.
+            return self._rework_or_escalate(b, b.last_fail_reason or "behaviour not accepted")
+        if b.state == BehaviourState.AT_GREEN:
+            if self._policy.per_behaviour and not b.pending_gates:
+                return self._request_behaviour_gates(b)
+            if not self._policy.per_behaviour:
+                return self._request_judgement(state, b)
+            return 0
+        if b.state == BehaviourState.GATES_PASSED:
             return self._request_judgement(state, b)
         return 0
+
+    def _block_uncharacterized(self, state: SwarmState, b: Behaviour) -> int:
+        """Never touch legacy risk areas without characterization tests —
+        a dispatcher rule, not a playbook sentence (DECISIONS D12)."""
+        if b.kind != "ac" or not state.risk_areas or b.story_id is None:
+            return 0
+        touched_risks = sorted(set(b.touches) & set(state.risk_areas))
+        if not touched_risks or state.story_char_done(b.story_id):
+            return 0
+        self._publisher.send(
+            COORDINATOR, "interpreter", "plan.owner_decision_needed",
+            {
+                "gate_id": _new_gate_id(),
+                "subject_id": b.id,
+                "reason": (
+                    f"behaviour {b.id} would change legacy risk areas "
+                    f"({', '.join(touched_risks)}) with no characterization tests in its "
+                    f"story — add a characterization behaviour (e.g. {b.story_id}.CHAR1) "
+                    f"or explicitly accept the risk"
+                ),
+            },
+            behaviour_id=b.id, iteration_id=b.iteration_id,
+        )
+        b.state = BehaviourState.BLOCKED
+        return 1
+
+    def _request_behaviour_gates(self, b: Behaviour) -> int:
+        published = 0
+        for spec in self._policy.per_behaviour:
+            gate_id = _new_gate_id()
+            self._publisher.send(
+                COORDINATOR, spec.role, "gate.requested",
+                {
+                    "gate_id": gate_id,
+                    "gate": spec.gate,
+                    "subject_kind": "behaviour",
+                    "subject_id": b.id,
+                    "commit_sha": _require(b.built_commit, "built_commit"),
+                    "base_sha": _require(b.base_sha, "base_sha"),
+                },
+                behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
+                gate_id=gate_id, commit_sha=b.built_commit,
+            )
+            b.pending_gates[gate_id] = GateInfo(gate_id=gate_id, gate=spec.gate, subject_id=b.id)
+            published += 1
+        b.state = BehaviourState.GATES_PENDING
+        return published
 
     def _request_run(self, state: SwarmState, b: Behaviour, purpose: RunPurpose) -> int:
         commit = b.spec_commit if purpose == RunPurpose.RED_VERIFICATION else b.built_commit
@@ -188,7 +253,7 @@ class Dispatcher:
         )
         return 1
 
-    def _rework_or_escalate(self, b: Behaviour) -> int:
+    def _rework_or_escalate(self, b: Behaviour, reason: str) -> int:
         next_attempt = b.attempt + 1
         if next_attempt > self._policy.max_attempts:
             self._publisher.send(
@@ -196,10 +261,7 @@ class Dispatcher:
                 {
                     "gate_id": _new_gate_id(),
                     "subject_id": b.id,
-                    "reason": (
-                        f"behaviour {b.id} blocked after {b.attempt} attempts: "
-                        f"{b.last_fail_reason or 'repeated failure'}"
-                    ),
+                    "reason": f"behaviour {b.id} blocked after {b.attempt} attempts: {reason}",
                 },
                 behaviour_id=b.id, iteration_id=b.iteration_id,
             )
@@ -211,8 +273,8 @@ class Dispatcher:
                 "behaviour_id": b.id,
                 "attempt": next_attempt,
                 "findings": [{
-                    "title": b.last_fail_reason or "behaviour not accepted",
-                    "detail": b.last_fail_reason or "see previous verdicts on the ledger",
+                    "title": reason,
+                    "detail": f"{reason} — see the verdicts on the ledger",
                     "severity": "major",
                     "source": "coordinator",
                 }],
@@ -221,6 +283,7 @@ class Dispatcher:
         )
         b.state = BehaviourState.BUILD_DISPATCHED
         b.attempt = next_attempt
+        b.pending_gates.clear()
         return 1
 
     def _request_judgement(self, state: SwarmState, b: Behaviour) -> int:
@@ -243,57 +306,197 @@ class Dispatcher:
         b.state = BehaviourState.ACCEPTANCE_PENDING
         return 1
 
-    # ── story / iteration completion + progress ──────────────────────────────
+    # ── story completion: behaviours done -> mutation gate -> announce ──────
 
-    def _announce_completions(self, state: SwarmState) -> int:
+    def _advance_stories(self, state: SwarmState) -> int:
         published = 0
         for story in state.stories.values():
-            if state.story_done(story.id) and not story.done_announced:
-                behaviours = state.story_behaviours(story.id)
-                self._publisher.send(
-                    COORDINATOR, "interpreter", "plan.story_done",
-                    {
-                        "story_id": story.id,
-                        "summary": f"{len(behaviours)} behaviours accepted for '{story.title}'.",
-                    },
-                    story_id=story.id, iteration_id=story.iteration_id,
-                )
-                story.done_announced = True
-                published += 1
-        for iteration in state.iterations.values():
-            if (
-                iteration.started
-                and not iteration.aborted
-                and state.iteration_done(iteration.id)
-                and not iteration.ready_announced
-            ):
-                behaviours = state.iteration_behaviours(iteration.id)
-                self._publisher.send(
-                    COORDINATOR, "interpreter", "plan.iteration_ready",
-                    {
-                        "iteration_id": iteration.id,
-                        "summary": (
-                            f"{len(behaviours)} behaviours done including the integration "
-                            f"behaviour; increment: {iteration.increment}"
-                        ),
-                    },
-                    iteration_id=iteration.id,
-                )
-                iteration.ready_announced = True
-                published += 1
-        published += self._progress(state)
+            if story.done_announced or story.escalated:
+                continue
+            if not state.story_behaviours_done(story.id):
+                continue
+            specs = self._policy.per_story
+            if specs:
+                published += self._advance_story_gates(state, story, specs)
+                if not story.gates_passed():
+                    continue
+            behaviours = state.story_behaviours(story.id)
+            self._publisher.send(
+                COORDINATOR, "interpreter", "plan.story_done",
+                {
+                    "story_id": story.id,
+                    "summary": f"{len(behaviours)} behaviours accepted for '{story.title}'.",
+                },
+                story_id=story.id, iteration_id=story.iteration_id,
+            )
+            story.done_announced = True
+            published += 1
         return published
 
+    def _advance_story_gates(
+        self, state: SwarmState, story: Story, specs: tuple[GateSpec, ...]
+    ) -> int:
+        last_commit = self._last_built_commit(state.story_behaviours(story.id))
+        base = self._first_base_sha(state.story_behaviours(story.id))
+        if story.mutation_run_id is None:
+            run_id = _new_run_id()
+            self._publisher.send(
+                COORDINATOR, "toolgate", "run.requested",
+                {"run_id": run_id, "kind": "mutation", "commit_sha": last_commit},
+                story_id=story.id, iteration_id=story.iteration_id, commit_sha=last_commit,
+            )
+            story.mutation_run_id = run_id
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.MUTATION,
+                                         story_id=story.id)
+            return 1
+        run = state.runs.get(story.mutation_run_id)
+        if run is None or run.exit_code is None:
+            return 0  # waiting on the toolgate
+        if not story.pending_gates:
+            published = 0
+            for spec in specs:
+                gate_id = _new_gate_id()
+                self._publisher.send(
+                    COORDINATOR, spec.role, "gate.requested",
+                    {
+                        "gate_id": gate_id,
+                        "gate": spec.gate,
+                        "subject_kind": "story",
+                        "subject_id": story.id,
+                        "commit_sha": last_commit,
+                        "base_sha": base,
+                        "run_id": story.mutation_run_id,
+                    },
+                    story_id=story.id, iteration_id=story.iteration_id,
+                    gate_id=gate_id, commit_sha=last_commit,
+                )
+                story.pending_gates[gate_id] = GateInfo(
+                    gate_id=gate_id, gate=spec.gate, subject_id=story.id
+                )
+                published += 1
+            return published
+        if story.gates_failed():
+            behaviours = [b for b in state.story_behaviours(story.id) if b.kind == "ac"]
+            target = behaviours[-1] if behaviours else state.story_behaviours(story.id)[-1]
+            failed = [g.gate for g in story.pending_gates.values() if g.verdict == "fail"]
+            story.reset_gates()
+            return self._rework_or_escalate(
+                target, f"story gate failed: {', '.join(failed)} (see gate findings)"
+            )
+        return 0
+
+    # ── iteration completion: security gate -> ready -> PR ──────────────────
+
+    def _advance_iterations(self, state: SwarmState) -> int:
+        published = 0
+        for iteration in state.iterations.values():
+            if not iteration.started or iteration.aborted:
+                continue
+            if iteration.pr_approved and not iteration.pr_opened:
+                url = self._git.create_pr(iteration.id)
+                self._publisher.send(
+                    COORDINATOR, "interpreter", "plan.pr_opened",
+                    {"iteration_id": iteration.id, "pr_url": url},
+                    iteration_id=iteration.id,
+                )
+                iteration.pr_opened = True
+                published += 1
+            if iteration.ready_announced or iteration.escalated:
+                continue
+            if not state.behaviours_done(iteration.id):
+                continue
+            stories_done = all(
+                state.stories[sid].done_announced for sid in iteration.story_ids
+            )
+            if not stories_done:
+                continue
+            specs = self._policy.per_iteration
+            if specs:
+                published += self._advance_iteration_gates(state, iteration, specs)
+                if not iteration.gates_passed():
+                    continue
+            behaviours = state.iteration_behaviours(iteration.id)
+            self._publisher.send(
+                COORDINATOR, "interpreter", "plan.iteration_ready",
+                {
+                    "iteration_id": iteration.id,
+                    "summary": (
+                        f"{len(behaviours)} behaviours done including the integration "
+                        f"behaviour; increment: {iteration.increment}"
+                    ),
+                },
+                iteration_id=iteration.id,
+            )
+            iteration.ready_announced = True
+            published += 1
+        return published
+
+    def _advance_iteration_gates(
+        self, state: SwarmState, iteration: Iteration, specs: tuple[GateSpec, ...]
+    ) -> int:
+        behaviours = state.iteration_behaviours(iteration.id)
+        last_commit = self._last_built_commit(behaviours)
+        base = self._first_base_sha(behaviours)
+        if not iteration.pending_gates:
+            published = 0
+            for spec in specs:
+                gate_id = _new_gate_id()
+                self._publisher.send(
+                    COORDINATOR, spec.role, "gate.requested",
+                    {
+                        "gate_id": gate_id,
+                        "gate": spec.gate,
+                        "subject_kind": "iteration",
+                        "subject_id": iteration.id,
+                        "commit_sha": last_commit,
+                        "base_sha": base,
+                    },
+                    iteration_id=iteration.id, gate_id=gate_id, commit_sha=last_commit,
+                )
+                iteration.pending_gates[gate_id] = GateInfo(
+                    gate_id=gate_id, gate=spec.gate, subject_id=iteration.id
+                )
+                published += 1
+            return published
+        if iteration.gates_failed():
+            failed = [g.gate for g in iteration.pending_gates.values() if g.verdict == "fail"]
+            self._publisher.send(
+                COORDINATOR, "interpreter", "plan.owner_decision_needed",
+                {
+                    "gate_id": _new_gate_id(),
+                    "subject_id": iteration.id,
+                    "reason": (
+                        f"iteration {iteration.id} gate failed: {', '.join(failed)} — "
+                        f"review the findings and decide (fix, accept, or re-plan)"
+                    ),
+                },
+                iteration_id=iteration.id,
+            )
+            iteration.escalated = True
+            return 1
+        return 0
+
+    # ── shared helpers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def _last_built_commit(behaviours: list[Behaviour]) -> str:
+        commits = [b.built_commit for b in behaviours if b.built_commit]
+        return _require(commits[-1] if commits else None, "built commit for gate")
+
+    @staticmethod
+    def _first_base_sha(behaviours: list[Behaviour]) -> str:
+        shas = [b.base_sha for b in behaviours if b.base_sha]
+        return _require(shas[0] if shas else None, "base sha for gate")
+
     def _progress(self, state: SwarmState) -> int:
-        iteration = state.active_iteration()
-        target = iteration or next(
+        iteration = state.active_iteration() or next(
             (it for it in state.iterations.values() if it.started), None
         )
-        if target is None:
+        if iteration is None:
             return 0
-        behaviours = state.iteration_behaviours(target.id)
+        behaviours = state.iteration_behaviours(iteration.id)
         done = sum(1 for b in behaviours if b.state == BehaviourState.DONE)
-        marker = (target.id, done)
+        marker = (iteration.id, done)
         if marker == state.last_progress:
             return 0
         current = next((b.id for b in behaviours if b.state not in TERMINAL_STATES
@@ -302,15 +505,15 @@ class Dispatcher:
         self._publisher.send(
             COORDINATOR, "owner", "chat.progress",
             {
-                "iteration_id": target.id,
+                "iteration_id": iteration.id,
                 "behaviours_done": done,
                 "behaviours_total": len(behaviours),
                 **({"current": current} if current else {}),
                 "blockers": blocked,
             },
-            iteration_id=target.id,
+            iteration_id=iteration.id,
         )
-        self._last_progress = marker
+        state.last_progress = marker
         return 1
 
 

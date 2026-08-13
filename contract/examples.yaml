@@ -111,6 +111,10 @@ plan.stall_alert:
 plan.roadmap_rejected:
   reasons: ["Iteration I2 has no integration behaviour coverage: increment not demonstrable."]
 
+plan.pr_opened:
+  iteration_id: "I1"
+  pr_url: "https://github.com/acme/rooms/pull/42"
+
 plan.owner_decision_needed:
   gate_id: "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS"
   subject_id: "I1.S1.B1"

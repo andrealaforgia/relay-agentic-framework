@@ -86,6 +86,13 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
     profiles = write_profiles(project)
     console.print(f"[green]✓[/green] {len(profiles)} permission profiles → {profiles[0].parent}")
 
+    gates_src = Path(__file__).resolve().parents[3] / "policies" / "gates.yaml"
+    gates_dst = project / ".relay" / "gates.yaml"
+    if gates_src.exists() and not gates_dst.exists():
+        gates_dst.parent.mkdir(parents=True, exist_ok=True)
+        gates_dst.write_text(gates_src.read_text())
+        console.print(f"[green]✓[/green] gate policy → {gates_dst}")
+
     config = project / "relay.toml"
     if config.exists():
         return
@@ -146,7 +153,18 @@ def up(
     name = swarm or swarm_name(project)
 
     console.print(f"[green]✓[/green] {redisctl.ensure_running(procs.state_root())}")
-    selected = [r.strip() for r in roles.split(",") if r.strip()] or list(procs.PHASE1_ROLES)
+    selected = [r.strip() for r in roles.split(",") if r.strip()]
+    if not selected:
+        from relay.coordinator.policy import Policy
+        from relay.workers.run import resolve_policy_path
+
+        selected = list(procs.PHASE1_ROLES)
+        policy_path = resolve_policy_path(project)
+        if policy_path is not None:
+            policy = Policy.load(policy_path)
+            for spec in (*policy.per_behaviour, *policy.per_story, *policy.per_iteration):
+                if spec.role not in selected:
+                    selected.append(spec.role)
     for role in selected:
         pid = procs.start_worker(name, role, project)
         console.print(f"[green]✓[/green] {role} (pid {pid})")

@@ -30,10 +30,29 @@ def reachable() -> bool:
         return False
 
 
+def ensure_aof(client: redis_lib.Redis) -> bool:
+    """Turn AOF on for a local instance that has it off. Returns True if on."""
+    if client.config_get("appendonly").get("appendonly") == "yes":
+        return True
+    if not is_local():
+        return False  # never reconfigure someone else's hub
+    client.config_set("appendonly", "yes")
+    try:
+        client.config_rewrite()  # persist across restarts when a config file exists
+    except redis_lib.RedisError:
+        pass  # no config file — the CONFIG SET still holds for this instance
+    return client.config_get("appendonly").get("appendonly") == "yes"
+
+
 def ensure_running(state_root: Path) -> str:
     """Returns a short description of what happened. Raises on failure."""
     if reachable():
-        return "redis already running"
+        if ensure_aof(get_client()):
+            return "redis already running (AOF on)"
+        raise RuntimeError(
+            "redis is reachable but AOF is off and it is not local — "
+            "enable appendonly on the hub"
+        )
     if not is_local():
         raise RuntimeError(
             f"REDIS_HOST={os.environ.get('REDIS_HOST')} is not reachable — "

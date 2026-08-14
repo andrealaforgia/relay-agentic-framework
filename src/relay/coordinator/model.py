@@ -76,6 +76,7 @@ class Behaviour:
     base_sha: str | None = None
     spec_commit: str | None = None
     built_commit: str | None = None
+    how_to_run: str = ""             # from the builder: exact commands to try it
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     last_fail_reason: str | None = None
 
@@ -175,6 +176,19 @@ class SwarmState:
     def story_behaviours_done(self, story_id: str) -> bool:
         behaviours = self.story_behaviours(story_id)
         return bool(behaviours) and all(b.state == BehaviourState.DONE for b in behaviours)
+
+    def how_to_try(self, iteration_id: str) -> str:
+        """How the owner runs the increment: the INT behaviour's instructions,
+        else the latest any builder provided."""
+        behaviours = self.iteration_behaviours(iteration_id)
+        int_id = self.iterations[iteration_id].int_behaviour_id
+        int_b = self.behaviours.get(int_id)
+        if int_b is not None and int_b.how_to_run:
+            return int_b.how_to_run
+        for b in reversed(behaviours):
+            if b.how_to_run:
+                return b.how_to_run
+        return ""
 
     def story_char_done(self, story_id: str) -> bool:
         """Does this story have a completed characterization behaviour?"""

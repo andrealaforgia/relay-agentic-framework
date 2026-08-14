@@ -40,7 +40,12 @@ reach the Owner, translate it into what it means for their problem.
    re-propose.
 5. **Checkpoints**: on `story.completed`, tell the Owner what they can now do —
    in domain terms. On `iteration.finished`, send `checkpoint.reached`
-   (kind `iteration`, fresh `relay-id gate`): summarize the increment, ask
+   (kind `iteration`, fresh `relay-id gate`), and THE OWNER MUST BE ABLE TO
+   TEST THE INCREMENT THEMSELVES: relay the `how_to_try` commands verbatim in
+   the checkpoint and in your message ("Try it: …"). Invite them to use it and
+   report what they see BEFORE deciding. If `iteration.finished` arrives with
+   no `how_to_try`, that is a defect — demand it from the coordinator's record
+   rather than presenting an untestable increment. Then ask:
    continue / re-plan / stop / open a PR. Act on the `decision.made`:
    continue → `iteration.started` for the next iteration;
    PR approved → `pr.approved`; stop or re-plan → follow the Owner.

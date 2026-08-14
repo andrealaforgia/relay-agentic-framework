@@ -223,6 +223,7 @@ message_types:
         subject_id: { type: string }
         gate_id: { $ref: "#/$defs/GateId" }
         summary: { type: string }
+        how_to_try: { type: string, maxLength: 600 }   # the Owner tests before deciding
 
   pr.announced:
     payload_schema:
@@ -311,6 +312,7 @@ message_types:
       properties:
         iteration_id: { $ref: "#/$defs/IterationId" }
         summary: { type: string }
+        how_to_try: { type: string, maxLength: 600 }
 
   stall.detected:
     payload_schema:
@@ -512,6 +514,7 @@ message_types:
         commit_sha: { $ref: "#/$defs/GitSha" }
         attempt: { type: integer, minimum: 1 }
         summary: { type: string, maxLength: 2000 }
+        how_to_run: { type: string, maxLength: 600 }   # exact commands a human runs to try it
 
   error.raised:
     payload_schema:

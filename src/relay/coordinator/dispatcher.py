@@ -459,6 +459,7 @@ class Dispatcher:
                 if not iteration.gates_passed():
                     continue
             behaviours = state.iteration_behaviours(iteration.id)
+            how_to_try = state.how_to_try(iteration.id)
             self._publisher.send(
                 COORDINATOR, "interpreter", "iteration.finished",
                 {
@@ -467,6 +468,7 @@ class Dispatcher:
                         f"{len(behaviours)} behaviours done including the integration "
                         f"behaviour; increment: {iteration.increment}"
                     ),
+                    **({"how_to_try": how_to_try} if how_to_try else {}),
                 },
                 iteration_id=iteration.id,
             )

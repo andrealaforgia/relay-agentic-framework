@@ -29,6 +29,10 @@ test itself.
 4. When the acceptance test passes locally (run it, don't assume), publish
    `behaviour.built` with the behaviour/story/iteration ids, the head commit sha,
    your attempt number, and a one-line summary of WHAT NOW WORKS (not how).
+   Whenever the increment is humanly runnable, include `how_to_run`: the exact
+   command(s) a person types from the project root to try it (e.g.
+   `uv run python -m sandtris`). For the iteration's `INT` behaviour this is
+   MANDATORY — verify the commands yourself first; the Owner will run them.
 
 ## Rework (`rework.requested`)
 Address every finding in the payload. The attempt number is given — echo it

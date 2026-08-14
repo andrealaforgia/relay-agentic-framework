@@ -237,6 +237,10 @@
     "commit_sha": {
       "$ref": "#/$defs/GitSha"
     },
+    "how_to_run": {
+      "maxLength": 600,
+      "type": "string"
+    },
     "iteration_id": {
       "$ref": "#/$defs/IterationId"
     },

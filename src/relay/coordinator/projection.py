@@ -295,6 +295,8 @@ def _built(state: SwarmState, env: Envelope) -> None:
     if b and b.state == BehaviourState.BUILD_DISPATCHED:
         b.state = BehaviourState.BUILT
         b.built_commit = str(env.payload["commit_sha"])
+        if env.payload.get("how_to_run"):
+            b.how_to_run = str(env.payload["how_to_run"])
 
 
 def _gate_requested(state: SwarmState, env: Envelope) -> None:

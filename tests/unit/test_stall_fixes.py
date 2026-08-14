@@ -108,3 +108,40 @@ def test_orphan_error_escalates_exactly_once_across_replay(client, publisher) ->
     fresh.pump()
     assert len(fresh.sent("decision.requested")) == 1  # not re-escalated
     assert fresh.state.unescalated_errors == {}
+
+
+def test_iteration_finished_carries_how_to_try(client, publisher) -> None:
+    from test_coordinator import SHA_BUILD, SHA_SPEC, _drive_behaviour_to_done
+
+    swarm = _start(client, publisher)
+    _drive_behaviour_to_done(swarm, "I1.S1.B1")
+    # drive INT, with the builder providing run instructions
+    publisher.send("specifier", "coordinator", "spec.written",
+                   {"behaviour_id": "I1.INT", "test_paths": ["tests/int.py"],
+                    "commit_sha": SHA_SPEC, "touches": []})
+    swarm.pump()
+    red = swarm.sent("run.requested")[-1]
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": red.payload["run_id"], "kind": "acceptance_test",
+                    "commit_sha": SHA_SPEC, "exit_code": 1, "duration_s": 0.1,
+                    "output_digest": "d" * 64})
+    swarm.pump()
+    publisher.send("builder", "coordinator", "behaviour.built",
+                   {"behaviour_id": "I1.INT", "story_id": None, "iteration_id": "I1",
+                    "commit_sha": SHA_BUILD, "attempt": 1,
+                    "how_to_run": "uv run python -m rooms"},
+                   behaviour_id="I1.INT")
+    swarm.pump()
+    green = swarm.sent("run.requested")[-1]
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": green.payload["run_id"], "kind": "acceptance_test",
+                    "commit_sha": SHA_BUILD, "exit_code": 0, "duration_s": 0.1,
+                    "output_digest": "e" * 64})
+    swarm.pump()
+    judgement = swarm.sent("judgement.requested")[-1]
+    publisher.send("specifier", "coordinator", "acceptance.judged",
+                   {"behaviour_id": "I1.INT", "verdict": "pass",
+                    "run_id": judgement.payload["run_id"]})
+    swarm.pump()
+    (finished,) = swarm.sent("iteration.finished")
+    assert finished.payload["how_to_try"] == "uv run python -m rooms"

@@ -12,7 +12,7 @@ remembering it.
 ## Quickstart
 
 ```bash
-uv tool install relay-agentic-framework   # or: uv sync inside this repo
+uv tool install git+https://github.com/andrealaforgia/relay-agentic-framework
 relay init --project ~/code/myproject     # writes relay.toml + per-role permission profiles
 relay up   --project ~/code/myproject --swarm acme
 relay chat --swarm acme                   # terminal 1: talk to the Interpreter

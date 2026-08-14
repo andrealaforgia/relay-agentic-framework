@@ -163,6 +163,81 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
     return table
 
 
+PLANE_COLORS = {
+    "chat": "green", "plan": "magenta", "work": "cyan", "gate": "dark_orange",
+    "run": "blue", "control": "red", "system": "bright_black",
+}
+
+
+def _event_row(env: Envelope) -> Text:
+    from datetime import datetime
+
+    try:
+        stamp = datetime.fromisoformat(env.ts).astimezone().strftime("%m-%d %H:%M:%S")
+    except ValueError:
+        stamp = env.ts[:14]
+    ref = env.behaviour_id or env.gate_id or env.story_id or env.iteration_id or ""
+    # the digest leads with what a human wants to read; ids shown in other
+    # columns (or too noisy to matter) are dropped
+    skip = {"contract_hash", "behaviour_id", "story_id", "iteration_id", "gate_id",
+            "output_digest", "artifact_path", "test_paths"}
+    priority = ("text", "summary", "reason", "verdict", "decision", "questions",
+                "answers", "exit_code", "how_to_try", "how_to_run", "pr_url",
+                "problem", "detail", "goal")
+    ordered = [k for k in priority if k in env.payload] + sorted(
+        k for k in env.payload if k not in skip and k not in priority
+    )
+    parts = []
+    for k in ordered:
+        value = str(env.payload[k])
+        if k == "commit_sha":
+            value = value[:8]
+        parts.append(f"{k}={value[:60]}")
+    detail = " · ".join(parts)
+    row = Text()
+    row.append(f"{env.seq or '':>5}  ", style="bright_black")
+    row.append(f"{stamp}  ", style="bright_black")
+    row.append(f"{env.from_role:>12}", style=ROLE_COLORS.get(env.from_role, "white"))
+    row.append(" → ")
+    row.append(f"{env.to_role:<12}", style=ROLE_COLORS.get(env.to_role, "white"))
+    row.append(f"{env.type:<24}", style=f"bold {PLANE_COLORS.get(env.plane, 'white')}")
+    row.append(f"{ref:<12}", style="bright_black")
+    row.append(detail[:130], style="dim")
+    return row
+
+
+def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
+                cycles: int | None = None) -> None:
+    """The ledger as a table, from the very first event, then live."""
+    client = get_client()
+    console = Console()
+    header = Text()
+    header.append(f"{'seq':>5}  {'timestamp':<16}", style="bold")
+    header.append(f"{'producer':>12}   {'recipient':<12}", style="bold")
+    header.append(f"{'type':<24}{'ref':<12}detail", style="bold")
+    console.print(header)
+    console.print("─" * min(console.width, 140), style="bright_black")
+
+    seen = 0
+    n = 0
+    while True:
+        entries = cast(
+            "list[tuple[str, dict[str, str]]]", client.xrange(ledger_key(swarm))
+        )
+        for _sid, fields in entries[seen:]:
+            env = Envelope.try_from_fields(fields)
+            if env is None:
+                console.print(Text("       (entry from another writer — skipped)",
+                                   style="dim red"))
+                continue
+            console.print(_event_row(env))
+        seen = len(entries)
+        n += 1
+        if not follow or (cycles is not None and n >= cycles):
+            return
+        time.sleep(refresh_s)
+
+
 def watch(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None:
     client = get_client()
     console = Console()

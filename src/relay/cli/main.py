@@ -441,12 +441,25 @@ def chat(
 
 
 @app.command()
-def watch(swarm: str = SwarmOpt) -> None:
-    """Live board: assistant liveness, behaviour states, event feed."""
+def watch(
+    swarm: str = SwarmOpt,
+    events: bool = typer.Option(False, "--events",
+                                help="Event log: every ledger event from the start, as a table"),
+) -> None:
+    """Live board: assistant liveness, behaviour states, event feed.
+
+    With --events: the full audited history instead — timestamp, producer,
+    type, work-item ref, payload — scrollback-friendly. Both views follow
+    live; Ctrl-C stops.
+    """
+    from relay.cli.watch import events_view
     from relay.cli.watch import watch as watch_loop
 
     try:
-        watch_loop(_swarm(swarm))
+        if events:
+            events_view(_swarm(swarm))
+        else:
+            watch_loop(_swarm(swarm))
     except KeyboardInterrupt:
         pass
 

@@ -66,6 +66,7 @@ class Behaviour:
     story_id: str | None            # None for INT behaviours
     kind: str                        # ac | integration | characterization
     ac_text: str
+    title: str = ""                  # the outcome in a few words (board summary)
     state: BehaviourState = BehaviourState.PLANNED
     attempt: int = 1
     spec_attempts: int = 0               # spec.requested dispatches (respec-loop cap)

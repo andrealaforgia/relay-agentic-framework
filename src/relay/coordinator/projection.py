@@ -78,6 +78,7 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
                     story_id=story.id,
                     kind=_kind_of(ac["id"]),
                     ac_text=ac["text"],
+                    title=str(ac.get("title", "")),
                 )
                 state.behaviours[behaviour.id] = behaviour
                 state.behaviour_order.append(behaviour.id)
@@ -94,6 +95,7 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
                 f"The integrated increment of {iteration.id} is demonstrable end to end: "
                 f"{iteration.increment}"
             ),
+            title=f"{iteration.increment} — working end to end"[:80],
         )
         iteration.int_behaviour_id = int_id
         state.behaviours[int_id] = int_behaviour

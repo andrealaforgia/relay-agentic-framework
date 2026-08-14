@@ -96,6 +96,22 @@ def _activity_line(role: str, text: str) -> Text:
     return line
 
 
+def goal_summary(title: str, ac_text: str) -> str:
+    """What the behaviour achieves, in one line: the title when given,
+    otherwise the outcome ('then …') clause — never the Given preamble."""
+    if title:
+        return title
+    import re
+
+    text = " ".join(ac_text.split())
+    for keyword in ("then", "when"):
+        match = re.search(rf"\b{keyword}\b[,:]?\s+(.+)$", text, re.IGNORECASE)
+        if match:
+            outcome = match.group(1).strip().rstrip(".")
+            return outcome[:1].upper() + outcome[1:]
+    return text
+
+
 def _board(state: SwarmState) -> Table:
     table = Table(show_header=True, header_style="bold", expand=True)
     table.add_column("behaviour", no_wrap=True)
@@ -106,7 +122,7 @@ def _board(state: SwarmState) -> Table:
         b = state.behaviours[bid]
         icon, colour = STATE_ICONS.get(b.state, ("◌", "yellow"))
         blink = "blink " if b.state not in STATE_ICONS else ""
-        summary = " ".join(b.ac_text.split())  # one line, whatever the AC's formatting
+        summary = goal_summary(b.title, b.ac_text)
         if b.state == BehaviourState.AT_RED and b.last_fail_reason:
             summary = f"⚠ {b.last_fail_reason}"
         table.add_row(

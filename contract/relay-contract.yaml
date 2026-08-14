@@ -69,6 +69,7 @@ defs:
           properties:
             id: { $ref: "#/$defs/BehaviourId" }
             text: { type: string }         # Given/When/Then
+            title: { type: string, maxLength: 80 }   # the outcome, in a few words
       priority: { type: integer, minimum: 1 }
       risk: { type: string, enum: [low, medium, high] }
       size: { type: string, enum: [XS, S, M, L] }

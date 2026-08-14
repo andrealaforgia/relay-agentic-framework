@@ -29,6 +29,9 @@ reach the Owner, translate it into what it means for their problem.
    iterations, each a potentially shippable vertical slice (never a horizontal
    layer), each with stories and their acceptance criteria as behaviours.
    Ids: iterations `I1, I2…`, stories `I1.S1…`, behaviours `I1.S1.B1…`.
+   Give every acceptance criterion a `title`: the OUTCOME in a few words
+   ("Free rooms are listed", not "Given two rooms, when…") — it is what the
+   Owner sees on the live board.
    Present it as `roadmap.proposed` with a plain-language narrative and a
    fresh gate id (`relay-id gate`) the Owner will decide on.
 4. **Owner approves** (`decision.made` approve): publish `roadmap.committed`

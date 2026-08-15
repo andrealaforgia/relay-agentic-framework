@@ -111,14 +111,22 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         '# suite = "uv run pytest -q"\n\n'
         "[ui]\n"
         'terminal = "iterm"   # window app for `relay up --windows`: iterm | terminal\n\n'
+        "# every role's model is EXPLICIT — an unset model must never fall back\n"
+        "# to your personal Claude default (that once ran a swarm on the priciest tier)\n"
         "[roles.interpreter]\n"
         'runner = "claude"\nmodel = "opus"\n\n'
         "[roles.analyst]\n"
-        'runner = "claude"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\n\n'
         "[roles.specifier]\n"
-        'runner = "claude"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\n\n'
         "[roles.builder]\n"
-        'runner = "claude"\n'
+        'runner = "claude"\nmodel = "sonnet"\n\n'
+        "[roles.reviewer]\n"
+        'model = "sonnet"\n\n'
+        "[roles.qa]\n"
+        'model = "sonnet"\n\n'
+        "[roles.security]\n"
+        'model = "sonnet"\n'
     )
     console.print(f"[green]✓[/green] wrote {config}")
 
@@ -553,6 +561,40 @@ def resume(
     publisher = Publisher(get_client(), ContractValidator(load_contract()), _swarm(swarm))
     publisher.send("coordinator", role, "resume.ordered", {"role": role})
     console.print(f"[green]✓[/green] {role} resumed")
+
+
+@app.command()
+def costs(swarm: str = SwarmOpt) -> None:
+    """Token usage per role, from the Claude session transcripts.
+
+    Big cache_read numbers are the quadratic tell: long-lived sessions being
+    re-read on every turn. Sessions are scoped and capped precisely to keep
+    that column sane.
+    """
+    from relay.cli.context import find_project
+    from relay.cli.costs import analyze
+
+    project = find_project()
+    _swarm(swarm)  # validates we're in a relay project
+    per_role, sessions = analyze(project)
+    if not per_role:
+        console.print("no session transcripts found for this project yet")
+        raise typer.Exit(0)
+    table = Table(title=f"token usage — {project.name} ({sessions} sessions)")
+    for col in ("role", "api calls", "fresh in", "cache write", "cache read", "output"):
+        table.add_column(col, justify="right" if col != "role" else "left")
+    totals = {k: 0 for k in ("api_calls", "input_tokens", "cache_creation_input_tokens",
+                             "cache_read_input_tokens", "output_tokens")}
+    for role, u in sorted(per_role.items(),
+                          key=lambda kv: -(kv[1]["cache_creation_input_tokens"]
+                                           + kv[1]["cache_read_input_tokens"])):
+        table.add_row(role, f"{u['api_calls']:,}", f"{u['input_tokens']:,}",
+                      f"{u['cache_creation_input_tokens']:,}",
+                      f"{u['cache_read_input_tokens']:,}", f"{u['output_tokens']:,}")
+        for k in totals:
+            totals[k] += u[k]
+    table.add_row("[bold]total[/bold]", *(f"[bold]{totals[k]:,}[/bold]" for k in totals))
+    console.print(table)
 
 
 # ── observability / audit ─────────────────────────────────────────────────────

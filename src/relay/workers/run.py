@@ -42,13 +42,16 @@ def _load_config(project: Path) -> dict[str, object]:
 WRITING_ROLES = ("specifier", "builder")
 
 
+ROLE_DEFAULT_MODELS = {"interpreter": "opus", "sentinel": "opus"}
+
+
 def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
     from relay.cli.profiles import settings_path
 
     roles_cfg = config.get("roles")
     role_cfg = (roles_cfg.get(role) or {}) if isinstance(roles_cfg, dict) else {}
     runner_name = role_cfg.get("runner", "claude")
-    model = role_cfg.get("model") or ("opus" if role == "sentinel" else None)
+    model = role_cfg.get("model")
     if runner_name == "codex":
         from relay.runners.codex import CodexRunner
 
@@ -62,6 +65,9 @@ def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
         default_settings if default_settings.exists() else None
     )
     skip = bool(role_cfg.get("skip_permissions", True))
+    # NEVER let a worker inherit the user's personal default model: an
+    # unconfigured role once silently ran the priciest tier. Explicit always.
+    model = model or ROLE_DEFAULT_MODELS.get(role, "sonnet")
     return ClaudeRunner(model=model, settings_path=resolved, skip_permissions=skip)
 
 

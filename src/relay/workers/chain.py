@@ -25,6 +25,11 @@ from relay.workers.base import Worker
 MAX_CORRECTIONS = 2
 TURN_TIMEOUT_S = 1800
 VERIFY_SCAN_COUNT = 500
+# Sessions are a cost multiplier: every turn re-reads the whole history, so
+# an unbounded --resume grows quadratically (observed: one 610-turn session
+# re-reading ~220k tokens per call). Sessions are scoped to one work item and
+# hard-capped; prompts are self-contained, so rotation never loses correctness.
+MAX_SESSION_TURNS = 20
 
 PROTOCOL_REMINDER = """\
 == Relay protocol (mechanical rules, enforced in code) ==
@@ -61,6 +66,8 @@ class ChainWorker(Worker):
         self.state_dir = state_dir
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self._session_file = state_dir / "session.txt"
+        self._session_meta_file = state_dir / "session_meta.json"
+        self._cost_total = 0.0
 
     # ── session persistence ──────────────────────────────────────────────────
 
@@ -68,6 +75,34 @@ class ChainWorker(Worker):
         if self._session_file.exists():
             return self._session_file.read_text().strip() or None
         return None
+
+    def _session_meta(self) -> dict[str, object]:
+        if self._session_meta_file.exists():
+            try:
+                return dict(json.loads(self._session_meta_file.read_text()))
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {"scope": "", "turns": 0}
+
+    def _scoped_session(self, scope: str) -> str | None:
+        """The session to resume — or None to start fresh when the work item
+        changed or the session hit its turn cap (context stays bounded)."""
+        meta = self._session_meta()
+        if meta.get("scope") != scope:
+            if self._session_ref():
+                print(f"[{time.strftime('%H:%M:%S')}] fresh session: new work item {scope}",
+                      flush=True)
+            return None
+        if int(str(meta.get("turns", 0))) >= MAX_SESSION_TURNS:
+            print(f"[{time.strftime('%H:%M:%S')}] fresh session: {MAX_SESSION_TURNS}-turn "
+                  f"cap reached for {scope}", flush=True)
+            return None
+        return self._session_ref()
+
+    def _record_turn(self, scope: str, fresh: bool) -> None:
+        meta = self._session_meta()
+        turns = 1 if fresh or meta.get("scope") != scope else int(str(meta.get("turns", 0))) + 1
+        self._session_meta_file.write_text(json.dumps({"scope": scope, "turns": turns}))
 
     def _save_session(self, ref: str | None) -> None:
         previous = self._session_ref()
@@ -154,15 +189,22 @@ class ChainWorker(Worker):
             print(f"[{time.strftime('%H:%M:%S')}]   {activity}", flush=True)
             self.heartbeat(status=f"{env.type}: {activity[:120]}")
 
+        scope = env.behaviour_id or env.gate_id or env.type
         for _correction in range(MAX_CORRECTIONS + 1):
+            session_ref = self._scoped_session(scope)
             result = self.runner.run_turn(
                 prompt=prompt,
                 cwd=cwd,
-                session_ref=self._session_ref(),
+                session_ref=session_ref,
                 timeout_s=TURN_TIMEOUT_S,
                 on_event=on_event,
             )
             self._save_session(result.session_ref)
+            self._record_turn(scope, fresh=session_ref is None)
+            if result.cost_usd:
+                self._cost_total += float(result.cost_usd)
+                print(f"[{time.strftime('%H:%M:%S')}] turn cost ${result.cost_usd:.2f} "
+                      f"(worker total ${self._cost_total:.2f})", flush=True)
 
             reply_id = self._reply_on_stream(env.event_id)
             if reply_id is not None:

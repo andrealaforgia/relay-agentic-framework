@@ -21,6 +21,7 @@ from typing import Any
 
 import redis
 
+from relay.contract.envelope import Envelope
 from relay.ledger.reader import read_all
 
 COUNTERS = ("input_tokens", "cache_creation_input_tokens",
@@ -38,11 +39,15 @@ def _blank() -> dict[str, Any]:
     row["fresh_sessions"] = 0
     row["cost_usd"] = 0.0
     row["duration_s"] = 0.0
+    # which tiers actually billed for this row: a role that quietly ran on
+    # the priciest model is the incident this makes visible at a glance
+    row["models"] = set()
     return row
 
 
 def _accumulate(row: dict[str, Any], payload: dict[str, Any]) -> None:
     row["turns"] += 1
+    row["models"].add(str(payload.get("model") or "unknown"))
     row["fresh_sessions"] += 1 if payload.get("fresh_session") else 0
     row["cost_usd"] += float(payload.get("cost_usd") or 0.0)
     row["duration_s"] += float(payload.get("duration_s") or 0.0)
@@ -76,23 +81,43 @@ class UsageReport:
         return int(self.total["turns"]) == 0
 
 
-def fold_usage(client: redis.Redis, swarm: str) -> UsageReport:
-    by_role: dict[str, dict[str, Any]] = defaultdict(_blank)
-    by_behaviour: dict[str, dict[str, Any]] = defaultdict(_blank)
-    by_model: dict[str, dict[str, Any]] = defaultdict(_blank)
-    total = _blank()
+class UsageFold:
+    """The running total, one event at a time.
 
-    for _sid, env in read_all(client, swarm):
+    The report and the live view share this so they can never disagree about
+    what a swarm has spent.
+    """
+
+    def __init__(self) -> None:
+        self.by_role: dict[str, dict[str, Any]] = defaultdict(_blank)
+        self.by_behaviour: dict[str, dict[str, Any]] = defaultdict(_blank)
+        self.by_model: dict[str, dict[str, Any]] = defaultdict(_blank)
+        self.total: dict[str, Any] = _blank()
+
+    def add(self, env: Envelope) -> bool:
+        """Fold one event in. False if it was not a usage event."""
         if env.type != "usage.reported":
-            continue
+            return False
         payload = env.payload
-        role = str(payload.get("role") or env.from_role)
-        _accumulate(by_role[role], payload)
-        _accumulate(by_model[str(payload.get("model") or "unknown")], payload)
-        _accumulate(total, payload)
-        # work-item attribution: the gate that has no behaviour is still work
-        subject = env.behaviour_id or env.iteration_id or env.gate_id
-        if subject:
-            _accumulate(by_behaviour[subject], payload)
+        self._accumulate_all(payload, str(payload.get("role") or env.from_role),
+                             env.behaviour_id or env.iteration_id or env.gate_id)
+        return True
 
-    return UsageReport(dict(by_role), dict(by_behaviour), dict(by_model), total)
+    def _accumulate_all(self, payload: dict[str, Any], role: str, subject: str | None) -> None:
+        _accumulate(self.by_role[role], payload)
+        _accumulate(self.by_model[str(payload.get("model") or "unknown")], payload)
+        _accumulate(self.total, payload)
+        # work-item attribution: the gate that has no behaviour is still work
+        if subject:
+            _accumulate(self.by_behaviour[subject], payload)
+
+    def report(self) -> UsageReport:
+        return UsageReport(dict(self.by_role), dict(self.by_behaviour),
+                           dict(self.by_model), self.total)
+
+
+def fold_usage(client: redis.Redis, swarm: str) -> UsageReport:
+    fold = UsageFold()
+    for _sid, env in read_all(client, swarm):
+        fold.add(env)
+    return fold.report()

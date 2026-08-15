@@ -458,18 +458,31 @@ def watch(
     swarm: str = SwarmOpt,
     events: bool = typer.Option(False, "--events",
                                 help="Event log: every ledger event from the start, as a table"),
+    tokens: bool = typer.Option(False, "--tokens",
+                                help="Token burn: spend per role and per turn, as it happens"),
 ) -> None:
     """Live board: assistant liveness, behaviour states, event feed.
 
     With --events: the full audited history instead — timestamp, producer,
-    type, work-item ref, payload — scrollback-friendly. Both views follow
-    live; Ctrl-C stops.
+    type, work-item ref, payload — scrollback-friendly.
+
+    With --tokens: what the swarm is spending, folded from the ledger as it
+    lands — per role (with the model that actually billed, and how many turns
+    started cold), the running rate, cache warmth, and the last turns as they
+    complete. Same arithmetic as `relay costs`, live.
+
+    All three views follow; Ctrl-C stops.
     """
-    from relay.cli.watch import events_view
+    from relay.cli.watch import events_view, tokens_view
     from relay.cli.watch import watch as watch_loop
 
+    if events and tokens:
+        console.print("[red]✗[/red] --events and --tokens are different views: pick one")
+        raise typer.Exit(1)
     try:
-        if events:
+        if tokens:
+            tokens_view(_swarm(swarm))
+        elif events:
             events_view(_swarm(swarm))
         else:
             watch_loop(_swarm(swarm))

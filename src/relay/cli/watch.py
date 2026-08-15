@@ -28,6 +28,7 @@ from relay.cli import procs
 from relay.contract.envelope import Envelope
 from relay.coordinator.model import BehaviourState, SwarmState
 from relay.coordinator.projection import apply
+from relay.ledger.usage import UsageFold, UsageReport, billed_input_equivalents
 
 ROLE_COLORS = {
     "owner": "green", "interpreter": "cyan", "analyst": "blue",
@@ -236,6 +237,130 @@ def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
         if not follow or (cycles is not None and n >= cycles):
             return
         time.sleep(refresh_s)
+
+
+# ── token burn, live ──────────────────────────────────────────────────────────
+
+MIN_RATE_WINDOW_S = 60.0   # below this, a rate is noise dressed as a number
+TOKEN_FEED_DEPTH = 12
+
+
+def _short_model(model: str) -> str:
+    """claude-sonnet-5 → sonnet: the tier is the part that changes the bill."""
+    for tier in ("opus", "sonnet", "haiku", "fable"):
+        if tier in model:
+            return tier
+    return model
+
+
+def _tokens_table(report: UsageReport) -> Table:
+    # sized to its content, never expanded: money must not be the column the
+    # terminal decides to abbreviate
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("role", no_wrap=True)
+    table.add_column("model", no_wrap=True)
+    for column in ("turns", "cold", "loops", "written", "read", "out", "cost"):
+        table.add_column(column, justify="right", no_wrap=True)
+
+    for role, row in sorted(report.by_role.items(), key=lambda kv: -float(kv[1]["cost_usd"])):
+        models = sorted(_short_model(m) for m in row["models"])
+        table.add_row(
+            Text(role, style=ROLE_COLORS.get(role, "white")),
+            Text(", ".join(models), style="bright_black"),
+            f"{row['turns']:,}",
+            Text(f"{row['fresh_sessions']:,}", style="yellow" if row["fresh_sessions"] else ""),
+            f"{row['agent_turns']:,}",
+            f"{row['cache_creation_input_tokens']:,}",
+            f"{row['cache_read_input_tokens']:,}",
+            f"{row['output_tokens']:,}",
+            Text(f"${row['cost_usd']:.2f}", style="bold"),
+        )
+    total = report.total
+    table.add_row(
+        Text("total", style="bold"), "",
+        Text(f"{total['turns']:,}", style="bold"),
+        Text(f"{total['fresh_sessions']:,}", style="bold"),
+        Text(f"{total['agent_turns']:,}", style="bold"),
+        Text(f"{total['cache_creation_input_tokens']:,}", style="bold"),
+        Text(f"{total['cache_read_input_tokens']:,}", style="bold"),
+        Text(f"{total['output_tokens']:,}", style="bold"),
+        Text(f"${total['cost_usd']:.2f}", style="bold"),
+    )
+    return table
+
+
+def _tokens_summary(report: UsageReport, elapsed_s: float) -> Text:
+    """Spend, burn rate, and the two numbers that explain them."""
+    total = report.total
+    written = int(total["cache_creation_input_tokens"])
+    read = int(total["cache_read_input_tokens"])
+    warmth = read / (read + written) if (read + written) else 0.0
+
+    line = Text()
+    line.append(f"${total['cost_usd']:.2f}", style="bold")
+    if elapsed_s >= MIN_RATE_WINDOW_S and total["cost_usd"]:
+        # a rate needs enough elapsed time to mean anything; before that,
+        # showing one would just be a big number that frightens people
+        line.append(f"  (${total['cost_usd'] / elapsed_s * 3600:.2f}/h)", style="bold yellow")
+    line.append(f"  ·  {billed_input_equivalents(total):,.0f} billed input equivalents",
+                style="bright_black")
+    line.append(f"  ·  cache warmth {warmth:.0%}",
+                style="green" if warmth >= 0.8 else "yellow")
+    line.append(f"  ·  {total['fresh_sessions']} of {total['turns']} cold",
+                style="bright_black")
+    return line
+
+
+def _usage_line(env: Envelope) -> Text:
+    payload = env.payload
+    ref = env.behaviour_id or env.gate_id or env.iteration_id or ""
+    role = str(payload.get("role") or env.from_role)
+    # one turn, one line: a wrapped feed reads as noise
+    line = Text(no_wrap=True, overflow="ellipsis")
+    line.append(f"{env.seq or '':>5}  ", style="bright_black")
+    line.append(f"{role:<12}", style=ROLE_COLORS.get(role, "white"))
+    line.append(f"{_short_model(str(payload.get('model', '?'))):<7}", style="bright_black")
+    # the currency stays glued to the number; the column aligns around it
+    line.append(f"{'$' + format(float(payload.get('cost_usd') or 0.0), '.2f'):>7}  ", style="bold")
+    line.append(f"{int(payload.get('agent_turns') or 0):>3} loops  ", style="bright_black")
+    line.append(f"{int(payload.get('cache_read_input_tokens') or 0):>9,} read  ", style="dim")
+    line.append(f"{ref:<12}", style="bright_black")
+    line.append(str(payload.get("trigger_type", "")), style="dim")
+    if payload.get("fresh_session"):
+        line.append("  cold", style="yellow")
+    return line
+
+
+def tokens_view(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None:
+    """Token burn as it happens: the same fold `relay costs` prints, live."""
+    client = get_client()
+    console = Console()
+    fold = UsageFold()
+    feed: deque[Text] = deque(maxlen=TOKEN_FEED_DEPTH)
+    started = time.monotonic()
+    seen = 0
+
+    with Live(console=console, refresh_per_second=4) as live:
+        n = 0
+        while cycles is None or n < cycles:
+            entries = cast(
+                "list[tuple[str, dict[str, str]]]", client.xrange(ledger_key(swarm))
+            )
+            for _sid, fields in entries[seen:]:
+                env = Envelope.try_from_fields(fields)
+                if env is not None and fold.add(env):
+                    feed.append(_usage_line(env))
+            seen = len(entries)
+
+            report = fold.report()
+            live.update(Group(
+                _tokens_table(report),
+                _tokens_summary(report, time.monotonic() - started),
+                Text(""),
+                *feed,
+            ))
+            time.sleep(refresh_s)
+            n += 1
 
 
 def watch(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None:

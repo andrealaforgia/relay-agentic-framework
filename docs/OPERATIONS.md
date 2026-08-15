@@ -23,6 +23,8 @@ Diagnostics, in the order to reach for them:
 | Did anything get dead-lettered? | `relay status` (dlq count), then the `relay:<swarm>:dlq` stream |
 | Is the ledger internally consistent? | `relay audit` |
 | What has this engagement cost, and where? | `relay costs`, `relay costs --by-behaviour` |
+| What is it spending right now? | `relay watch --tokens` |
+| A role is burning too much | lower `effort` / `max_budget_usd` for it in `.relay/relay.toml` |
 | Preflight after changes | `relay doctor` |
 | Freeze a misbehaving role | `relay pause <role>` / `relay resume <role>` (work parks in the PEL) |
 

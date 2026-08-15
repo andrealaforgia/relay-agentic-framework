@@ -43,6 +43,22 @@ WRITING_ROLES = ("specifier", "builder")
 
 
 ROLE_DEFAULT_MODELS = {"interpreter": "opus", "sentinel": "opus"}
+# Effort caps the agentic loop, and loop count is what makes a turn expensive:
+# every loop re-sends the whole accumulated context. The builder writes the
+# code and keeps the headroom; judging a behaviour-sized diff does not need it.
+ROLE_DEFAULT_EFFORT = {
+    "builder": "high",
+    "specifier": "medium", "analyst": "medium", "interpreter": "medium",
+    "reviewer": "medium", "qa": "medium", "security": "medium",
+    "sentinel": "low",
+}
+# A hard per-turn ceiling, generous enough that only a runaway hits it — the
+# observed spread on a toy project was $0.20-$2.40 a turn. Fail closed: the
+# turn stops, the worker fails loudly, and a human decides.
+ROLE_DEFAULT_BUDGET_USD = {
+    "builder": 3.0, "specifier": 2.5, "analyst": 2.5,
+    "reviewer": 1.5, "qa": 1.5, "security": 1.5, "sentinel": 1.0,
+}
 
 
 def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
@@ -68,7 +84,13 @@ def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
     # NEVER let a worker inherit the user's personal default model: an
     # unconfigured role once silently ran the priciest tier. Explicit always.
     model = model or ROLE_DEFAULT_MODELS.get(role, "sonnet")
-    return ClaudeRunner(model=model, settings_path=resolved, skip_permissions=skip)
+    effort = role_cfg.get("effort") or ROLE_DEFAULT_EFFORT.get(role)
+    budget = role_cfg.get("max_budget_usd", ROLE_DEFAULT_BUDGET_USD.get(role))
+    return ClaudeRunner(
+        model=model, settings_path=resolved, skip_permissions=skip,
+        effort=str(effort) if effort else None,
+        max_budget_usd=float(budget) if budget else None,
+    )
 
 
 def _playbook_dir() -> Path:

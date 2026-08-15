@@ -113,20 +113,25 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         'terminal = "iterm"   # window app for `relay up --windows`: iterm | terminal\n\n'
         "# every role's model is EXPLICIT — an unset model must never fall back\n"
         "# to your personal Claude default (that once ran a swarm on the priciest tier)\n"
+        "#\n"
+        "# effort caps the agentic loop (low|medium|high|xhigh|max). Loop count is\n"
+        "# what makes a turn expensive: every loop re-sends the whole context.\n"
+        "# max_budget_usd is a HARD per-turn ceiling — the turn stops and the\n"
+        "# worker fails loudly rather than spending whatever it takes.\n"
         "[roles.interpreter]\n"
-        'runner = "claude"\nmodel = "opus"\n\n'
+        'runner = "claude"\nmodel = "opus"\neffort = "medium"\n\n'
         "[roles.analyst]\n"
-        'runner = "claude"\nmodel = "sonnet"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\neffort = "medium"\nmax_budget_usd = 2.5\n\n'
         "[roles.specifier]\n"
-        'runner = "claude"\nmodel = "sonnet"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\neffort = "medium"\nmax_budget_usd = 2.5\n\n'
         "[roles.builder]\n"
-        'runner = "claude"\nmodel = "sonnet"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\neffort = "high"\nmax_budget_usd = 3.0\n\n'
         "[roles.reviewer]\n"
-        'model = "sonnet"\n\n'
+        'model = "sonnet"\neffort = "medium"\nmax_budget_usd = 1.5\n\n'
         "[roles.qa]\n"
-        'model = "sonnet"\n\n'
+        'model = "sonnet"\neffort = "medium"\nmax_budget_usd = 1.5\n\n'
         "[roles.security]\n"
-        'model = "sonnet"\n'
+        'model = "sonnet"\neffort = "medium"\nmax_budget_usd = 1.5\n'
     )
     console.print(f"[green]✓[/green] wrote {config}")
 

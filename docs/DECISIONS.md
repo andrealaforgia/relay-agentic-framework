@@ -174,6 +174,61 @@ also states billed input equivalents and cache warmth. Raw token totals
 flatter whichever strategy writes more and reads less, which is exactly the
 comparison the session-rotation cap needs to be judged on.
 
+## D16 — Rediscovery is the bill; hand context down and cap the loop
+
+Forensics on the tic-tac-toe run: $21.99 for eight behaviours, of which
+specification and gates were 64%. The single priciest turn was a specifier
+writing ONE acceptance test — 37 agentic loops, 3.48M cache-read tokens, seven
+minutes, $2.39. Cache writes on that turn were 18k. The cache was working
+perfectly; the cost was the loop count, because every loop re-sends the whole
+accumulated context. A turn's price grows quadratically with how much it had
+to go and find out.
+
+So three changes, all deterministic, none relying on a model remembering
+anything:
+
+- **Briefings** (`workers/briefing.py`): a gate is handed the diff the
+  coordinator already knows how to compute; a builder is handed the text of
+  the acceptance test it must satisfy; every worker is handed the
+  reconnaissance brief that Iteration 0 paid a model to write and that,
+  until now, nobody read. Bounded, and truncation is announced.
+  Measured on a real behaviour from the tic-tac-toe run: a code-review turn
+  went from 16 loops and 653,651 read tokens to 1 loop and 22,461 — same
+  verdict, a quarter of the cost.
+- **Effort** (`--effort`, per role in relay.toml): the direct control on loop
+  count. The builder keeps headroom; judging a behaviour-sized diff does not
+  need it.
+- **A hard per-turn ceiling** (`--max-budget-usd`, per role): the turn stops
+  and the worker fails loudly. A budget stop is never retried — correcting it
+  would spend the same money again — so it goes straight to `worker.failed`
+  and the DLQ. Fail closed, applied to money.
+
+Two supporting fixes. The prompt is now assembled static-first (playbook,
+then trigger, then briefing, then sentinel corrections), because a cache
+prefix is a byte prefix and the old order put the volatile part first. And
+cost is estimated from tokens where the runner reports none (`pricing.py`),
+so the Interpreter stops reporting $0.00 — cache writes are priced at 2x, not
+1.25x, because Claude Code uses the one-hour TTL, which reconciles exactly
+against measured turn costs.
+
+## D17 — Rework goes to whoever can act on it
+
+The same forensics turned up a routing defect that cost more than any single
+inefficiency. EVERY failed gate was dispatched to the builder as
+`rework.requested`, including `test_design` — a gate that judges the tests the
+SPECIFIER wrote and that the builder's own playbook forbids it from touching.
+The findings were not carried either: the payload said "gate test_design
+failed — see the verdicts on the ledger". So the builder was asked, three
+times, to make a change it was not allowed to make, without being told what
+the change was. It replied "unchanged from attempt 1", then "unchanged from
+attempts 1-2", and the behaviour blocked. Three behaviours died this way in
+one iteration, each burning three builder turns plus re-gating.
+
+Rework now routes by realm — `test_design` and `mutation` to the specifier,
+everything else to the builder — and carries the gate's actual findings
+instead of a summary of its own name. The projection keeps the failing gate
+and its findings so the coordinator has something real to forward.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

@@ -32,6 +32,9 @@ class TurnResult:
     model: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
     agent_turns: int | None = None
+    # the turn hit its hard spend ceiling: retrying it would only spend again,
+    # so the worker must fail loudly instead of running the correction loop
+    budget_exhausted: bool = False
 
 
 class Runner(Protocol):

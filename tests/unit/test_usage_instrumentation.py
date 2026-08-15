@@ -162,3 +162,19 @@ def test_the_ledger_view_says_so_when_nothing_was_recorded(client, monkeypatch, 
     except typer.Exit as e:
         assert e.exit_code == 0
     assert "no model turns recorded" in capsys.readouterr().out
+
+
+def test_a_turn_without_a_reported_cost_is_estimated_not_zeroed(tmp_path) -> None:
+    """The Interpreter's transcript records tokens and no price. A zero there
+    would understate the swarm's priciest role by its entire spend."""
+    from relay.pricing import estimate_cost
+
+    opus = estimate_cost("claude-opus-5", {"cache_read_input_tokens": 1_000_000,
+                                           "cache_creation_input_tokens": 100_000,
+                                           "output_tokens": 10_000})
+    # 1M reads at 0.1x + 100k writes at 2x = 300k billed input @ $5/M = $1.50,
+    # plus 10k output @ $25/M = $0.25
+    assert round(opus, 2) == 1.75
+    assert estimate_cost("claude-sonnet-5", {"output_tokens": 1_000_000}) == 15.0
+    assert estimate_cost("something-unknown", {"output_tokens": 1_000_000}) == 15.0
+    assert estimate_cost("claude-opus-5", {}) == 0.0

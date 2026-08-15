@@ -77,12 +77,22 @@ def turn_from_result(
     ) if model_usage else configured_model
     turns = result_obj.get("num_turns")
     is_error = bool(result_obj.get("is_error", False))
+    # budget exhaustion carries no `result` text, so name it ourselves
+    exhausted = (result_obj.get("subtype") == "error_max_budget_usd"
+                 or result_obj.get("terminal_reason") == "budget_exhausted")
+    error = None
+    if exhausted:
+        error = (f"turn stopped at its ${result_obj.get('total_cost_usd', 0):.2f} budget "
+                 f"ceiling after {turns} loops")
+    elif is_error:
+        error = str(result_obj.get("result", ""))[:500]
     return TurnResult(
         ok=not is_error,
         text=str(result_obj.get("result", "")),
         session_ref=str(result_obj.get("session_id") or "") or fallback_session,
         cost_usd=result_obj.get("total_cost_usd"),
-        error=str(result_obj.get("result", ""))[:500] if is_error else None,
+        error=error,
+        budget_exhausted=exhausted,
         model=model,
         usage=usage,
         agent_turns=int(turns) if turns is not None else None,
@@ -92,6 +102,15 @@ def turn_from_result(
 @dataclass
 class ClaudeRunner:
     model: str | None = None
+    # Effort is the lever on the agentic loop: lower effort means fewer, more
+    # consolidated tool calls. Loop count is what makes a turn expensive —
+    # every loop re-sends the whole accumulated context — so this is the
+    # cheapest control the framework has.
+    effort: str | None = None
+    # A hard per-turn ceiling in dollars. Only works with -p, which is exactly
+    # how every worker runs. Fail closed: a runaway turn stops and escalates
+    # rather than quietly costing whatever it costs.
+    max_budget_usd: float | None = None
     settings_path: Path | None = None
     # Andrea's call: assistants run with full autonomy — in headless mode a
     # denied tool is a silent stall, and allowlists can never anticipate every
@@ -107,6 +126,10 @@ class ClaudeRunner:
             cmd.append("--dangerously-skip-permissions")
         if self.model:
             cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["--effort", self.effort]
+        if self.max_budget_usd:
+            cmd += ["--max-budget-usd", str(self.max_budget_usd)]
         if self.settings_path:
             cmd += ["--settings", str(self.settings_path)]
         if session_ref:

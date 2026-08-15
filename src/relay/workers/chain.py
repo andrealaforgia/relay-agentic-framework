@@ -20,6 +20,7 @@ from relay.bus import dlq
 from relay.bus.keys import ledger_key
 from relay.contract.envelope import Envelope
 from relay.runners.base import Runner
+from relay.workers import briefing
 from relay.workers.base import Worker
 
 MAX_CORRECTIONS = 2
@@ -182,14 +183,16 @@ class ChainWorker(Worker):
                 "\n\n== Sentinel corrections (already acked; apply them in this turn) ==\n"
                 + notes
             )
-        base_prompt = correction_block + self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
+        # static first, volatile last: the playbook is the same on every turn,
+        # so anything that changes must sit AFTER it or the cached prefix dies
+        base_prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
             role=self.role,
             swarm=self.swarm,
             event_id=env.event_id,
             from_role=env.from_role,
             type=env.type,
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
-        )
+        ) + briefing.build(self.workspace, env.type, env.payload) + correction_block
         prompt = base_prompt
 
         def on_event(activity: str) -> None:
@@ -224,6 +227,12 @@ class ChainWorker(Worker):
             if reply_id is not None:
                 return reply_id
 
+            if result.budget_exhausted:
+                # the ceiling is deliberate: correcting it would just spend the
+                # same money again. Fail loudly and let a human decide.
+                print(f"[{time.strftime('%H:%M:%S')}] !! {result.error}", flush=True)
+                break
+
             detail = result.error or "turn ended with no reply on the stream"
             # append, never replace: a runner without session resume must
             # still see the original trigger it is being corrected about
@@ -239,7 +248,8 @@ class ChainWorker(Worker):
         self.publisher.send(
             self.role, "system", "worker.failed",
             {"role": self.role, "kind": "runner_failure",
-             "detail": f"no reply published for {env.event_id} after {MAX_CORRECTIONS + 1} turns"},
+             "detail": (result.error if result.budget_exhausted else
+                        f"no reply published for {env.event_id} after {MAX_CORRECTIONS + 1} turns")},
         )
         dlq.route_to_dlq(
             self.client, self.publisher, self.swarm, self.role,

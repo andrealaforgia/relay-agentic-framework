@@ -63,3 +63,34 @@ def test_the_priciest_model_wins_when_a_turn_spans_several() -> None:
         configured_model="sonnet",
     )
     assert turn.model == "claude-opus-5"
+
+
+BUDGET_EXHAUSTED = {
+    "type": "result",
+    "subtype": "error_max_budget_usd",
+    "is_error": True,
+    "terminal_reason": "budget_exhausted",
+    "session_id": "sess-9",
+    "total_cost_usd": 1.5,
+    "num_turns": 22,
+    "usage": {"cache_read_input_tokens": 900_000, "output_tokens": 3_000},
+}
+
+
+def test_a_turn_stopped_by_its_budget_says_so() -> None:
+    """The result carries no text when the ceiling stops it, so the runner
+    names the failure — and flags it, because retrying only spends again."""
+    turn = turn_from_result(BUDGET_EXHAUSTED, fallback_session=None, configured_model="sonnet")
+    assert not turn.ok
+    assert turn.budget_exhausted
+    assert "budget ceiling" in (turn.error or "")
+    assert "22 loops" in (turn.error or "")
+    assert turn.usage["cache_read_input_tokens"] == 900_000   # still billed, still recorded
+
+
+def test_an_ordinary_error_is_not_a_budget_stop() -> None:
+    turn = turn_from_result(
+        {"type": "result", "is_error": True, "result": "tool failed", "session_id": "s"},
+        fallback_session=None, configured_model="sonnet",
+    )
+    assert not turn.budget_exhausted and turn.error == "tool failed"

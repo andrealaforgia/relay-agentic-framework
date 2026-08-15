@@ -85,6 +85,7 @@ def _record_session_usage(client: redis.Redis, swarm: str, stream: "object") -> 
     """
     from relay.cli.procs import state_root
     from relay.cli.session_usage import read_new_usage, record_usage
+    from relay.pricing import estimate_cost
 
     try:
         payload = json.loads(stream.read())  # type: ignore[attr-defined]
@@ -107,6 +108,10 @@ def _record_session_usage(client: redis.Redis, swarm: str, stream: "object") -> 
         "agent_turns": slice_.assistant_messages,
         **slice_.usage,
     }
+    # transcripts record tokens but no price; an estimate beats the $0.00 that
+    # made the priciest role in the swarm look free
+    if slice_.usage:
+        body["cost_usd"] = round(estimate_cost(slice_.model or "", slice_.usage), 4)
     try:
         publisher = Publisher(client, ContractValidator(load_contract()), swarm)
         publisher.send("interpreter", "system", "usage.reported", body)

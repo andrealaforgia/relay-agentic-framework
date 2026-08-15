@@ -33,7 +33,6 @@ owner ⇄ chat CLI ⇄ interpreter ⇄ analyst           conversational plane (d
 coordinator → specifier → builder → coordinator     work plane
 coordinator → reviewer / qa / security              gate plane
 toolgate → coordinator                              run evidence (deterministic test/mutation runs)
-sentinel → anyone                                   control plane (realm corrections, audited)
 ```
 
 | Role | Kind | Job |
@@ -44,9 +43,12 @@ sentinel → anyone                                   control plane (realm corre
 | specifier | LLM | authors the failing acceptance test per behaviour; judges completion |
 | builder | LLM | ATDD red-green-refactor; small continuous commits to the iteration branch |
 | reviewer / qa / security | LLM | blocking quality gates (per behaviour / story / iteration) |
-| sentinel | LLM | audits that every message stays within its author's realm |
 | coordinator | Python | state machines, dispatch, gates, timers, progress — no LLM |
 | toolgate | Python | runs tests/suites/mutation tools; publishes machine-verified evidence |
+
+The sentinel (realm auditor, control plane) is implemented but **disabled by default for now**
+— it added meaningfully to token cost for a toy-scale swarm. Re-enable explicitly with
+`relay up . --roles coordinator,toolgate,analyst,specifier,builder,sentinel`.
 
 Everything rides one Redis Stream per swarm (`relay:<swarm>:ledger`) — simultaneously message bus,
 append-only ledger, and audit log. The contract (`contract/relay-contract.yaml`) is the single
@@ -69,8 +71,9 @@ every read, and the generated models/docs are drift-tested in CI.
 Phases 0–3 are complete: contract kernel + bus spine; the end-to-end delivery loop
 (coordinator, toolgate, specifier/builder, live-session Interpreter in `relay chat`);
 the quality gates (reviewer, qa incl. mutation-survivor judgment, security) with PR flow
-and legacy intake; and the sentinel + control plane, Codex runner, per-role Redis ACLs,
-and `--tmux`. A full engagement runs with zero model calls in the test suite
+and legacy intake; and the control plane (sentinel implemented, disabled by default — see
+above), Codex runner, per-role Redis ACLs, and `--tmux`. A full engagement runs with zero
+model calls in the test suite
 (`tests/integration/test_full_relay_no_llm.py`), including exact resume after a
 mid-engagement crash. Deferred: RelayUI (web progress radiator), HMAC message provenance.
 See `docs/DECISIONS.md` for design rationale and `docs/OPERATIONS.md` for running it,

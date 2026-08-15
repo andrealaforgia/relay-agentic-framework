@@ -46,7 +46,9 @@ its own clone of the target project, this framework installed
        --roles builder,specifier,toolgate
    # anywhere
    REDIS_HOST=hub.tailnet relay up ~/clones/myproject --swarm acme \
-       --roles coordinator,analyst,sentinel,reviewer,qa,security
+       --roles coordinator,analyst,reviewer,qa,security
+   # sentinel is disabled by default (token cost) — add it back explicitly
+   # to this list, or its own `--roles sentinel`, when you want realm auditing
    # your laptop: just the conversation
    REDIS_HOST=hub.tailnet relay chat --swarm acme
    ```

@@ -24,6 +24,7 @@ Diagnostics, in the order to reach for them:
 | Is the ledger internally consistent? | `relay audit` |
 | What has this engagement cost, and where? | `relay costs`, `relay costs --by-behaviour` |
 | What is it spending right now? | `relay watch --tokens` |
+| The Interpreter has not reacted to mail | it is woken automatically; `RELAY_STOP_WAIT_S=0` disables the hook wait |
 | A role is burning too much | lower `effort` / `max_budget_usd` for it in `.relay/relay.toml` |
 | Preflight after changes | `relay doctor` |
 | Freeze a misbehaving role | `relay pause <role>` / `relay resume <role>` (work parks in the PEL) |

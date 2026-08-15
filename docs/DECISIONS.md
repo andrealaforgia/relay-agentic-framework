@@ -95,7 +95,9 @@ approval only; merging stays human.
 
 Assistants are headless worker processes (`claude -p --resume`, `codex exec`) behind a `Runner`
 protocol; viewer terminals are read-only stream consumers (`relay watch`, `relay tail`, optional
-`--tmux`). v1's AppleScript/TUI-footer scraping — its worst silent failure — is unrepresentable.
+`--tmux`). v1's AppleScript/TUI-footer *scraping* — its worst silent failure — is unrepresentable: no rule
+ever depends on parsing rendered output, and relay never borrows a terminal it did not create.
+(Supplying a session's input is a different thing and is how the Interpreter is woken — see D18.)
 Claude sessions run with `--dangerously-skip-permissions` by default (Andrea's call, 2026-08-13):
 in headless mode a denied tool is a silent stall, and allowlists can never anticipate every
 command a builder legitimately needs — the guardrails that matter are the contract-validated
@@ -228,6 +230,39 @@ Rework now routes by realm — `test_design` and `mutation` to the specifier,
 everything else to the builder — and carries the gate's actual findings
 instead of a summary of its own name. The projection keeps the failing gate
 and its findings so the coordinator has something real to forward.
+
+## D18 — Waking the Interpreter: hold its input, knock, never deliver
+
+Measured stall (sandtris, 15 Aug): the Interpreter dispatched
+`analysis.requested` at 20:59:39, its turn ended at 20:59:55, the Analyst
+answered at 21:02:51 — and the questions sat unread all evening. A Claude Code
+session reads its mail only at its own turn boundaries or when the Owner
+types, and the playbook rule that covers this ("use `relay-inbox --wait` after
+dispatching work") is exactly the kind of rule D1 says we never rely on.
+
+Nothing can wake a session from outside. Its control socket
+(`/tmp/cc-socks/<pid>.sock`) answers neither JSON-RPC, MCP initialize, LSP
+framing nor a WebSocket upgrade; macOS refuses `TIOCSTI` on a terminal you do
+not own; an MCP server cannot start a turn; `claude agents` has no send. The
+only way in is to hold the session's input, which relay can do because relay
+starts the session.
+
+So `relay chat` no longer execs Claude Code and vanishes. It forks it under a
+pty and relays bytes untouched — the Owner sees the real interface — while a
+watcher reads the ledger for undelivered Interpreter mail and types a nudge.
+
+Three properties make this v1's instinct without v1's failure. Relay owns the
+pty it created, so there is no window to find and no permissions to ask for.
+Nothing parses what the session prints; the trigger is a ledger event.
+And the nudge carries NO CONTENT — delivery still goes through `relay-inbox`,
+so the ack, the ledger record and the audit are untouched, and a nudge that
+misses costs nothing because the mail is still queued for the next keystroke.
+A polling loop inside the session was rejected on measurement: at 45-80k
+tokens per API call, a 30-second poll costs $3-5/hour to sit idle.
+
+Belt and braces, and free: when the swarm owes the Interpreter a reply, the
+Stop hook now blocks on Redis for up to five minutes rather than letting the
+session go idle. Waiting costs no tokens at all.
 
 ## Phased roadmap
 

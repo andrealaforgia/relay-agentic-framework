@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import subprocess as sp
+import sys
+import time
 from pathlib import Path
 
 import typer
@@ -450,12 +452,44 @@ def chat(
     if kickoff:
         cmd.append(kickoff)
     os.chdir(project)
-    # execvpe, not execvp: the session's hooks and every relay-send the
-    # Interpreter runs need the relay commands on PATH, and a login shell
-    # does not read ~/.zshrc
+    # execvpe carries the relay commands on PATH: the session's hooks and every
+    # relay-send the Interpreter runs need them, and a login shell does not
+    # read ~/.zshrc
     from relay.cli.entrypoints import env_with_entrypoints
 
-    os.execvpe("claude", cmd, env_with_entrypoints())
+    session_env = env_with_entrypoints()
+    if not sys.stdin.isatty():
+        os.execvpe("claude", cmd, session_env)      # piped/tested: nothing to wake
+
+    # Otherwise relay stays in the middle, holding the session's input, so mail
+    # that lands while the Interpreter is idle can knock on the door. Nothing
+    # here reads what Claude Code prints — the trigger is a ledger event.
+    from relay.cli import pty_proxy
+    from relay.cli.wake import (
+        NUDGE_COOLDOWN_S,
+        nudge_text,
+        should_nudge,
+        undelivered_for_interpreter,
+    )
+
+    state = {"checked": 0.0, "nudged": -NUDGE_COOLDOWN_S}
+
+    def knock(quiet_for_s: float) -> str | None:
+        now = time.monotonic()
+        if now - state["checked"] < 2.0:            # the ledger is cheap, not free
+            return None
+        state["checked"] = now
+        try:
+            waiting = undelivered_for_interpreter(client, name)
+        except Exception:                            # never take the session down
+            return None
+        if not should_nudge(waiting=waiting, quiet_for_s=quiet_for_s,
+                            since_last_nudge_s=now - state["nudged"]):
+            return None
+        state["nudged"] = now
+        return nudge_text(name)
+
+    raise typer.Exit(pty_proxy.run(cmd, session_env, on_idle=knock))
 
 
 @app.command()

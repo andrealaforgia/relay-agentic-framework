@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -34,6 +35,29 @@ from relay.contract.envelope import Envelope
 from relay.contract.errors import ContractError
 
 CONSUMER = "interpreter-native"
+# How long the Stop hook holds the door open when the swarm owes us a reply.
+# Waiting is free: relay-inbox blocks on Redis, so no tokens, no API calls,
+# no polling. The model choosing to wait was the rule that got forgotten.
+STOP_WAIT_S = int(os.environ.get("RELAY_STOP_WAIT_S", "300"))
+
+# what we say downstream, and what coming back counts as an answer
+_ASKS = {"analysis.requested", "answers.relayed", "recon.requested"}
+_ANSWERS = {"questions.raised", "stories.written", "recon.completed"}
+
+
+def _awaiting_reply(client: redis.Redis, swarm: str) -> bool:
+    """Did the Interpreter speak last with nobody answering yet?
+
+    Deterministic and cheap: the last thing it asked downstream is newer than
+    the last thing that came back. No model judgement, no guessing.
+    """
+    asked_at = answered_at = 0
+    for _sid, env in _scan(client, swarm):
+        if env.from_role == "interpreter" and env.type in _ASKS:
+            asked_at = env.seq or asked_at
+        elif env.to_role == "interpreter" and env.type in _ANSWERS:
+            answered_at = env.seq or answered_at
+    return asked_at > answered_at
 
 
 def _drain(client: redis.Redis, swarm: str, block_ms: int = 0) -> list[Envelope]:
@@ -171,6 +195,10 @@ def main() -> int:
         _record_session_usage(client, args.swarm, sys.stdin)
         # if mail is pending when the session tries to stop, keep it going
         messages = _drain(client, args.swarm)
+        if not messages and STOP_WAIT_S and _awaiting_reply(client, args.swarm):
+            # the swarm owes us an answer: hold the door rather than going idle
+            # and making the Owner press a key to collect it
+            messages = _drain(client, args.swarm, block_ms=STOP_WAIT_S * 1000)
         if messages:
             print(json.dumps({
                 "decision": "block",

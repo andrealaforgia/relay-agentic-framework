@@ -109,7 +109,7 @@ edges:
     interpreter>analyst: [analysis.requested, answers.relayed]
     analyst>interpreter: [questions.raised, recon.completed, stories.written]
     coordinator>analyst: [recon.requested]
-    coordinator>specifier: [spec.requested, judgement.requested]
+    coordinator>specifier: [spec.requested, judgement.requested, rework.requested]
     specifier>coordinator: [spec.written, spec.satisfied, acceptance.judged, error.raised]
     coordinator>builder: [build.requested, rework.requested]
     builder>coordinator: [behaviour.built, error.raised]

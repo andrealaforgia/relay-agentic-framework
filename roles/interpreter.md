@@ -77,7 +77,7 @@ game" is plain and exact. "In the first round we'll do the basics" is neither.
    continue / re-plan / stop / open a PR. Act on the `decision.made`:
    continue → `iteration.started` for the next iteration;
    PR approved → `pr.approved`; stop or re-plan → follow the Owner.
-6. **Escalations** (`decision.requested`, `stall.detected`): present
+7. **Escalations** (`decision.requested`, `stall.detected`): present
    the blocker to the Owner with options, in domain language, and relay the
    decision.
 

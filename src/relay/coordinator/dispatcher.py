@@ -310,21 +310,28 @@ class Dispatcher:
             )
             b.state = BehaviourState.BLOCKED
             return 1
+        # Rework goes to whoever can act on it. test_design and mutation
+        # findings are about the TESTS, which only the specifier may touch —
+        # sending them to the builder asks for a change its own playbook
+        # forbids, so the loop cannot converge and burns three attempts.
+        culprit = "specifier" if b.last_fail_gate in ("test_design", "mutation") else "builder"
+        findings = b.last_findings or [{
+            "title": reason,
+            "detail": f"{reason} — see the verdicts on the ledger",
+            "severity": "major",
+            "source": "coordinator",
+        }]
         self._publisher.send(
-            COORDINATOR, "builder", "rework.requested",
+            COORDINATOR, culprit, "rework.requested",
             {
                 "behaviour_id": b.id,
                 "attempt": next_attempt,
-                "findings": [{
-                    "title": reason,
-                    "detail": f"{reason} — see the verdicts on the ledger",
-                    "severity": "major",
-                    "source": "coordinator",
-                }],
+                "findings": findings,
             },
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
         )
-        b.state = BehaviourState.BUILD_DISPATCHED
+        b.state = (BehaviourState.SPEC_DISPATCHED if culprit == "specifier"
+                   else BehaviourState.BUILD_DISPATCHED)
         b.attempt = next_attempt
         b.pending_gates.clear()
         return 1

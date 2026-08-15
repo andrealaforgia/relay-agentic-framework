@@ -211,3 +211,45 @@ def test_recon_runs_first_and_risk_areas_block_uncharacterized_builds(client, pu
     decision = mini.sent("decision.requested")[-1]
     assert "characterization" in decision.payload["reason"]
     assert len(mini.sent("build.requested")) == 0  # fail closed
+
+
+def test_test_design_rework_goes_to_the_specifier_with_the_real_findings(client, publisher) -> None:
+    """Measured failure: three behaviours each burned three attempts because a
+    test_design failure was sent to the builder, which may not touch tests, and
+    carried no findings — so it replied 'unchanged from attempt 1' every time."""
+    swarm = _start(client, publisher)
+    _spec_and_build(swarm, "I1.S1.B1")
+    gate = next(g for g in swarm.sent("gate.requested")
+                if g.payload["gate"] == "test_design")
+    swarm.publisher.send(
+        "qa", "coordinator", "gate.judged",
+        {"gate_id": gate.payload["gate_id"], "verdict": "fail",
+         "findings": [{"severity": "major", "title": "tautology in test_place",
+                       "detail": "passes with the production code deleted",
+                       "file": "tests/acceptance/test_place.py", "line": 12}]},
+    )
+    swarm.pump()
+
+    rework = swarm.sent("rework.requested")[-1]
+    assert rework.to_role == "specifier", "tests are the specifier's realm"
+    titles = [f["title"] for f in rework.payload["findings"]]
+    assert "tautology in test_place" in titles, "the culprit needs the actual finding"
+    assert rework.payload["findings"][0]["file"] == "tests/acceptance/test_place.py"
+
+
+def test_code_review_rework_still_goes_to_the_builder(client, publisher) -> None:
+    swarm = _start(client, publisher)
+    _spec_and_build(swarm, "I1.S1.B1")
+    gate = next(g for g in swarm.sent("gate.requested")
+                if g.payload["gate"] == "code_review")
+    swarm.publisher.send(
+        "reviewer", "coordinator", "gate.judged",
+        {"gate_id": gate.payload["gate_id"], "verdict": "fail",
+         "findings": [{"severity": "blocker", "title": "off-by-one in the win check",
+                       "detail": "counts 4 in a row as a win"}]},
+    )
+    swarm.pump()
+
+    rework = swarm.sent("rework.requested")[-1]
+    assert rework.to_role == "builder"
+    assert rework.payload["findings"][0]["title"] == "off-by-one in the win check"

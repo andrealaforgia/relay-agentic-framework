@@ -79,6 +79,10 @@ class Behaviour:
     how_to_run: str = ""             # from the builder: exact commands to try it
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     last_fail_reason: str | None = None
+    # the failing gate and its actual findings: rework is unactionable without
+    # them, and which gate failed decides WHO can act on it
+    last_fail_gate: str | None = None
+    last_findings: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass

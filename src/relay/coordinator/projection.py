@@ -332,6 +332,10 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
                 if any(v == "fail" for v in verdicts):
                     b.state = BehaviourState.AT_RED
                     b.last_fail_reason = f"gate {gate.gate} failed"
+                    if verdict == "fail":
+                        b.last_fail_gate = gate.gate
+                        found = env.payload.get("findings")
+                        b.last_findings = list(found) if isinstance(found, list) else []
                 elif all(v == "pass" for v in verdicts):
                     b.state = BehaviourState.GATES_PASSED
             return

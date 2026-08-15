@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `e49912635da4bd4875a446ddac0ec2fd812551c4d948b99901ad2cda28c3efa3`.
+Contract version 1, hash `431e81b344b92db16452e343aa00514d2420a71cc450dcfabb66c22f6e9faf48`.
 
 ## Roles
 
@@ -22,7 +22,7 @@ Contract version 1, hash `e49912635da4bd4875a446ddac0ec2fd812551c4d948b99901ad2c
 | work | `builder>coordinator` | `behaviour.built`, `error.raised` |
 | work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered` |
 | work | `coordinator>builder` | `build.requested`, `pause.ordered`, `resume.ordered`, `rework.requested` |
-| work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `spec.requested` |
+| work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `spec.requested` |
 | work | `interpreter>analyst` | `analysis.requested`, `answers.relayed` |
 | work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.satisfied`, `spec.written` |
 | gate | `coordinator>qa` | `gate.requested`, `pause.ordered`, `resume.ordered` |

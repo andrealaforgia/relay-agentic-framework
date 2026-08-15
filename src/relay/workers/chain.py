@@ -117,12 +117,19 @@ class ChainWorker(Worker):
 
     def _reply_on_stream(self, trigger_event_id: str) -> str | None:
         """Find a message FROM this role with in_reply_to = trigger. Exact
-        typed match — the v1 'any newer own message' heuristic is gone."""
+        typed match — the v1 'any newer own message' heuristic is gone.
+
+        System-plane entries are never work product: the worker publishes its
+        own bookkeeping (usage, failures) with the same lineage, and a silent
+        model must never be able to pass verification on our paperwork.
+        """
         entries = cast(
             "list[tuple[str, dict[str, str]]]",
             self.client.xrevrange(ledger_key(self.swarm), count=VERIFY_SCAN_COUNT),
         )
         for _sid, fields in entries:
+            if fields.get("plane") == "system":
+                continue
             if fields.get("from") == self.role and fields.get("in_reply_to") == trigger_event_id:
                 return fields.get("event_id")
         return None
@@ -192,6 +199,7 @@ class ChainWorker(Worker):
         scope = env.behaviour_id or env.gate_id or env.type
         for _correction in range(MAX_CORRECTIONS + 1):
             session_ref = self._scoped_session(scope)
+            started = time.monotonic()
             result = self.runner.run_turn(
                 prompt=prompt,
                 cwd=cwd,
@@ -199,8 +207,14 @@ class ChainWorker(Worker):
                 timeout_s=TURN_TIMEOUT_S,
                 on_event=on_event,
             )
+            duration_s = time.monotonic() - started
             self._save_session(result.session_ref)
             self._record_turn(scope, fresh=session_ref is None)
+            self.report_usage(
+                result, trigger_type=env.type, fresh_session=session_ref is None,
+                session_turn=int(str(self._session_meta().get("turns", 1))),
+                duration_s=duration_s, env=env,
+            )
             if result.cost_usd:
                 self._cost_total += float(result.cost_usd)
                 print(f"[{time.strftime('%H:%M:%S')}] turn cost ${result.cost_usd:.2f} "

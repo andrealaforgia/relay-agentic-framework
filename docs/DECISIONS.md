@@ -145,6 +145,35 @@ turn — an ignored sentinel is structurally impossible, and repeat offenders
 escalate to the interpreter (once per role). `pause.ordered` is enforced by
 the worker loop: parked work stays in the PEL, `resume` drains it.
 
+## D15 — Cost is a ledger fact, not a log line
+
+The token-burn investigation had to be done as forensics over Claude Code's
+session transcripts, and those transcripts have since been deleted with the
+project they measured — the evidence for the framework's most expensive
+incident no longer exists. Transcripts are also attributed by guesswork (a
+regex over the prompt) and say nothing about which behaviour the spend served.
+
+So every model turn now publishes `usage.reported` on the system plane, against
+the work item it was serving: the tier that actually billed, the four token
+counters, the cost, whether the session started cold, and how many agentic
+loops the invocation spent. Cost per behaviour, per gate, per role, per model
+is a fold like everything else that is true (D3), it survives `relay destroy`,
+and it is auditable. The Interpreter has no worker loop to report from, so its
+Stop hook reads what its own session spent from the transcript and publishes
+the same event — the one unbounded, opus-priced session must not be the
+invisible one.
+
+Two consequences worth stating. `relay costs` reads the ledger by default
+(`--transcripts` keeps the old per-API-call view). And the worker's own
+bookkeeping is on the system plane, which the verify-don't-trust check now
+skips: a silent model must never be able to pass verification on our
+paperwork.
+
+Cache reads bill at a tenth of input and cache writes at 1.25x, so the report
+also states billed input equivalents and cache warmth. Raw token totals
+flatter whichever strategy writes more and reads less, which is exactly the
+comparison the session-rotation cap needs to be judged on.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

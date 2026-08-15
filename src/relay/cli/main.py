@@ -564,13 +564,28 @@ def resume(
 
 
 @app.command()
-def costs(swarm: str = SwarmOpt) -> None:
-    """Token usage per role, from the Claude session transcripts.
+def costs(
+    swarm: str = SwarmOpt,
+    by_behaviour: bool = typer.Option(False, "--by-behaviour",
+                                      help="Group by work item instead of by role"),
+    transcripts: bool = typer.Option(False, "--transcripts",
+                                     help="Read the Claude session files instead of the ledger"),
+) -> None:
+    """What the engagement cost, folded from the ledger.
 
-    Big cache_read numbers are the quadratic tell: long-lived sessions being
-    re-read on every turn. Sessions are scoped and capped precisely to keep
-    that column sane.
+    Every model turn publishes `usage.reported` against the work item it was
+    serving, so this survives `relay destroy` and attributes honestly. Cache
+    read against cache write is the number to watch: reads bill at a tenth,
+    writes at 1.25x, so a run that keeps its sessions warm is far cheaper than
+    its raw token count suggests.
+
+    --transcripts falls back to the Claude session files (per-API-call detail,
+    but attributed by guesswork and deleted with the project).
     """
+    if not transcripts:
+        _costs_from_ledger(_swarm(swarm), by_behaviour=by_behaviour)
+        return
+
     from relay.cli.context import find_project
     from relay.cli.costs import analyze
 
@@ -598,6 +613,56 @@ def costs(swarm: str = SwarmOpt) -> None:
             totals[k] += u[k]
     table.add_row("[bold]total[/bold]", *(f"[bold]{totals[k]:,}[/bold]" for k in totals))
     console.print(table)
+
+
+def _costs_from_ledger(swarm: str, *, by_behaviour: bool) -> None:
+    from relay.ledger.usage import billed_input_equivalents, fold_usage
+
+    report = fold_usage(get_client(), swarm)
+    if report.empty:
+        console.print("no model turns recorded on this ledger yet "
+                      "(older swarms: try [bold]relay costs --transcripts[/bold])")
+        raise typer.Exit(0)
+
+    rows = report.by_behaviour if by_behaviour else report.by_role
+    label = "work item" if by_behaviour else "role"
+    table = Table(title=f"model spend — swarm {swarm} ({report.total['turns']} turns)")
+    table.add_column(label, min_width=11)  # never abbreviate a role name
+    for col in ("turns", "cold", "agent turns", "cache write", "cache read", "output", "cost"):
+        table.add_column(col, justify="right")
+
+    def add(name: str, row: dict[str, object], bold: bool = False) -> None:
+        mark = (lambda s: f"[bold]{s}[/bold]") if bold else (lambda s: s)
+        table.add_row(
+            mark(name),
+            mark(f"{row['turns']:,}"),
+            mark(f"{row['fresh_sessions']:,}"),
+            mark(f"{row['agent_turns']:,}"),
+            mark(f"{row['cache_creation_input_tokens']:,}"),
+            mark(f"{row['cache_read_input_tokens']:,}"),
+            mark(f"{row['output_tokens']:,}"),
+            mark(f"${row['cost_usd']:.2f}"),
+        )
+
+    for name, row in sorted(rows.items(), key=lambda kv: -float(kv[1]["cost_usd"])):
+        add(name, row)
+    add("total", report.total, bold=True)
+    console.print(table)
+
+    equivalents = billed_input_equivalents(report.total)
+    written = report.total["cache_creation_input_tokens"]
+    read = report.total["cache_read_input_tokens"]
+    warmth = (read / (read + written)) if (read + written) else 0.0
+    console.print(
+        f"billed input equivalents: {equivalents:,.0f} tokens  ·  "
+        f"cache warmth {warmth:.0%} (reads bill at 0.1x, writes at 1.25x)  ·  "
+        f"{report.total['fresh_sessions']} of {report.total['turns']} turns started cold"
+    )
+    models = ", ".join(
+        f"{m} ({r['turns']} turn{'s' if r['turns'] != 1 else ''}, ${r['cost_usd']:.2f})"
+        for m, r in sorted(report.by_model.items(), key=lambda kv: -float(kv[1]["cost_usd"]))
+    )
+    console.print(f"models billed: {models}")
 
 
 # ── observability / audit ─────────────────────────────────────────────────────

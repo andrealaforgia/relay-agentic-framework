@@ -87,7 +87,7 @@ class CodexRunner:
             )
         except FileNotFoundError:
             return TurnResult(ok=False, error=f"{self.binary} not installed",
-                              session_ref=session_ref)
+                              session_ref=session_ref, model=self.model)
         timer = threading.Timer(timeout_s, proc.kill)
         timer.start()
         thread_id: str | None = session_ref
@@ -110,13 +110,16 @@ class CodexRunner:
             timer.cancel()
 
         if terminal == "ok":
-            return TurnResult(ok=True, text=last_text, session_ref=thread_id)
+            return TurnResult(ok=True, text=last_text, session_ref=thread_id,
+                              model=self.model)
         if terminal is not None:
-            return TurnResult(ok=False, error=terminal, session_ref=thread_id)
+            return TurnResult(ok=False, error=terminal, session_ref=thread_id,
+                              model=self.model)
         stderr = (proc.stderr.read() if proc.stderr else "").strip()[-400:]
         return TurnResult(
             ok=proc.returncode == 0,
             text=last_text,
             error=None if proc.returncode == 0 else (stderr or f"exit {proc.returncode}"),
             session_ref=thread_id,
+            model=self.model,
         )

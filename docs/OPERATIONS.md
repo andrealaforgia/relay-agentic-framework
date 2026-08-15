@@ -22,6 +22,7 @@ Diagnostics, in the order to reach for them:
 | What is a specific assistant doing? | `relay tail <role>` (streamed tool calls, turn durations) |
 | Did anything get dead-lettered? | `relay status` (dlq count), then the `relay:<swarm>:dlq` stream |
 | Is the ledger internally consistent? | `relay audit` |
+| What has this engagement cost, and where? | `relay costs`, `relay costs --by-behaviour` |
 | Preflight after changes | `relay doctor` |
 | Freeze a misbehaving role | `relay pause <role>` / `relay resume <role>` (work parks in the PEL) |
 

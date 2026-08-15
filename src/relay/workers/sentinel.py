@@ -208,11 +208,19 @@ class SentinelWorker(Worker):
             f"If nothing violates its author's realm, publish nothing and reply 'clean'."
         )
         self.heartbeat(status=f"auditing {len(batch)} messages")
+        session_ref = self._session_ref()
+        started = time.monotonic()
         result = self.runner.run_turn(
             prompt=prompt, cwd=self.workspace,
-            session_ref=self._session_ref(), timeout_s=TURN_TIMEOUT_S,
+            session_ref=session_ref, timeout_s=TURN_TIMEOUT_S,
             on_event=lambda a: print(f"[{_now()}]   {a}", flush=True),
         )
+        # the semantic audit is the sentinel's only spend: it must show up in
+        # `relay costs` like everyone else's, or "the sentinel is expensive"
+        # stays an anecdote
+        self.report_usage(result, trigger_type="realm_audit",
+                          fresh_session=session_ref is None,
+                          duration_s=time.monotonic() - started)
         if result.session_ref:
             self._session_file.write_text(result.session_ref)
         self.heartbeat(status="idle")

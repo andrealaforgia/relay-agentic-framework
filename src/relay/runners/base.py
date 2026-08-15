@@ -7,7 +7,7 @@ TurnResult.text exists for logs and viewers only.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -24,6 +24,14 @@ class TurnResult:
     session_ref: str | None = None
     cost_usd: float | None = None
     error: str | None = None
+    # what the turn cost to run. `model` is the tier that actually billed —
+    # the check that would have caught a whole swarm silently running on the
+    # priciest one. `agent_turns` is how many loops the invocation spent, i.e.
+    # how much of the codebase it had to rediscover. Empty when the runner
+    # reports nothing; never guessed.
+    model: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
+    agent_turns: int | None = None
 
 
 class Runner(Protocol):

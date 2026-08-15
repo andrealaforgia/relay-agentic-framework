@@ -21,6 +21,7 @@ import argparse
 import json
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 
 import redis
 
@@ -76,6 +77,44 @@ def _render(messages: list[Envelope], swarm: str) -> str:
     return "\n\n".join(lines)
 
 
+def _record_session_usage(client: redis.Redis, swarm: str, stream: "object") -> None:
+    """Publish what the Interpreter's own session just spent.
+
+    Never fatal and never noisy: if the hook payload, the transcript or the
+    bus is not what we expect, the Owner's session carries on regardless.
+    """
+    from relay.cli.procs import state_root
+    from relay.cli.session_usage import read_new_usage, record_usage
+
+    try:
+        payload = json.loads(stream.read())  # type: ignore[attr-defined]
+        transcript = Path(str(payload.get("transcript_path") or ""))
+    except (json.JSONDecodeError, OSError, AttributeError, TypeError, ValueError):
+        return
+    if not str(transcript):
+        return
+
+    state_path = state_root() / swarm / "interpreter" / "usage.json"
+    slice_ = read_new_usage(transcript, state_path)
+    if slice_ is None:
+        return
+    body: dict[str, object] = {
+        "role": "interpreter",
+        "model": slice_.model or "unknown",
+        "trigger_type": "chat.turn",
+        "fresh_session": slice_.fresh,
+        "session_turn": slice_.session_turn,
+        "agent_turns": slice_.assistant_messages,
+        **slice_.usage,
+    }
+    try:
+        publisher = Publisher(client, ContractValidator(load_contract()), swarm)
+        publisher.send("interpreter", "system", "usage.reported", body)
+    except (ContractError, redis.RedisError):
+        return
+    record_usage(state_path, transcript, slice_)
+
+
 def _problem_already_stated(client: redis.Redis, swarm: str) -> bool:
     for _sid, env in _scan(client, swarm):
         if env.type == "problem.stated":
@@ -122,6 +161,9 @@ def main() -> int:
         return 0
 
     if args.hook_stop:
+        # the turn is over: put what it spent on the ledger before anything
+        # else, then check the mail
+        _record_session_usage(client, args.swarm, sys.stdin)
         # if mail is pending when the session tries to stop, keep it going
         messages = _drain(client, args.swarm)
         if messages:

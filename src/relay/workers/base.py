@@ -21,6 +21,8 @@ from relay.bus.keys import group_name, ledger_key, presence_key
 from relay.bus.publisher import Publisher
 from relay.contract import ContractValidator, load_contract
 from relay.contract.envelope import Envelope
+from relay.contract.errors import ContractError
+from relay.runners.base import TurnResult
 
 DELIVERY_CAP = 5
 PRESENCE_TTL_S = 45
@@ -211,6 +213,49 @@ class Worker:
             self._paused = False
             self._drain_pel_next_step = True  # work parked during the pause
             self.heartbeat(status="idle")
+
+    def report_usage(
+        self,
+        result: "TurnResult",
+        *,
+        trigger_type: str,
+        fresh_session: bool,
+        session_turn: int | None = None,
+        duration_s: float | None = None,
+        env: Envelope | None = None,
+    ) -> None:
+        """Publish one model turn's billable footprint against the work item.
+
+        Bookkeeping never costs the work a redelivery: a failure here is loud
+        but never fatal. What the runner did not report is omitted, not
+        zero-filled — an invented zero is indistinguishable from a free turn.
+        """
+        payload: dict[str, object] = {
+            "role": self.role,
+            "model": result.model or "unknown",
+            "trigger_type": trigger_type,
+            "fresh_session": fresh_session,
+        }
+        if session_turn is not None:
+            payload["session_turn"] = max(1, session_turn)
+        if duration_s is not None:
+            payload["duration_s"] = round(duration_s, 1)
+        if result.cost_usd is not None:
+            payload["cost_usd"] = float(result.cost_usd)
+        if result.agent_turns is not None:
+            payload["agent_turns"] = int(result.agent_turns)
+        payload.update(result.usage)
+        try:
+            self.publisher.send(
+                self.role, "system", "usage.reported", payload,
+                in_reply_to=env.event_id if env else None,
+                behaviour_id=env.behaviour_id if env else None,
+                story_id=env.story_id if env else None,
+                iteration_id=env.iteration_id if env else None,
+                gate_id=env.gate_id if env else None,
+            )
+        except (ContractError, redis.RedisError) as e:
+            print(f"[{_now()}] !! usage not recorded ({e})", flush=True)
 
     def drain_corrections(self) -> list[Envelope]:
         corrections, self.pending_corrections = self.pending_corrections, []

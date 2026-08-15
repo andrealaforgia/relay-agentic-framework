@@ -131,7 +131,7 @@ edges:
   system:
     "*>system": [worker.started, worker.stopped, worker.failed,
                  message.quarantined, gap.detected, session.started,
-                 contract.upgraded]
+                 contract.upgraded, usage.reported]
 
 # -----------------------------------------------------------------------------
 # Message types. One entry per type; payload_schema is JSON Schema (2020-12).
@@ -703,3 +703,29 @@ message_types:
       properties:
         old_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
         new_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+
+  # One model turn's billable footprint. The envelope refs attach it to the
+  # work item, so cost per behaviour/gate/iteration is a fold like everything
+  # else that is true (D3) — and it outlives the session transcripts, which
+  # live outside the swarm and are destroyed with it.
+  #   model         the tier that ACTUALLY billed, not the one configured
+  #   fresh_session cold start (rotation paid full price) or resumed
+  #   agent_turns   loops the invocation spent, i.e. how much it rediscovered
+  usage.reported:
+    payload_schema:
+      type: object
+      required: [role, model, trigger_type, fresh_session]
+      additionalProperties: false
+      properties:
+        role: { $ref: "#/$defs/Role" }
+        model: { type: string, minLength: 1 }
+        trigger_type: { type: string, minLength: 1 }
+        fresh_session: { type: boolean }
+        session_turn: { type: integer, minimum: 1 }
+        agent_turns: { type: integer, minimum: 0 }
+        duration_s: { type: number, minimum: 0 }
+        cost_usd: { type: number, minimum: 0 }
+        input_tokens: { type: integer, minimum: 0 }
+        cache_creation_input_tokens: { type: integer, minimum: 0 }
+        cache_read_input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }

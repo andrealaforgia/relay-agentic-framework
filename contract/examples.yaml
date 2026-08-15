@@ -298,3 +298,17 @@ session.started:
 contract.upgraded:
   old_hash: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
   new_hash: "af86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+usage.reported:
+  role: "builder"
+  model: "claude-sonnet-5"
+  trigger_type: "build.requested"
+  fresh_session: true
+  session_turn: 1
+  agent_turns: 14
+  duration_s: 96.4
+  cost_usd: 0.83
+  input_tokens: 12
+  cache_creation_input_tokens: 16031
+  cache_read_input_tokens: 17748
+  output_tokens: 4102

@@ -56,6 +56,39 @@ def parse_stream_line(line: str) -> tuple[str | None, dict[str, Any] | None]:
     return None, None
 
 
+USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens",
+              "cache_read_input_tokens", "output_tokens")
+
+
+def turn_from_result(
+    result_obj: dict[str, Any], fallback_session: str | None, configured_model: str | None
+) -> TurnResult:
+    """The result event, read for what it says about the bill.
+
+    `modelUsage` names the model that actually billed; when a turn spans
+    several, the priciest one is the honest label. Absent usage stays absent:
+    a zero we invented would be indistinguishable from a free turn.
+    """
+    usage_raw = result_obj.get("usage") or {}
+    usage = {k: int(usage_raw[k]) for k in USAGE_KEYS if usage_raw.get(k) is not None}
+    model_usage = result_obj.get("modelUsage") or {}
+    model = max(
+        model_usage, key=lambda m: float((model_usage[m] or {}).get("costUSD") or 0.0)
+    ) if model_usage else configured_model
+    turns = result_obj.get("num_turns")
+    is_error = bool(result_obj.get("is_error", False))
+    return TurnResult(
+        ok=not is_error,
+        text=str(result_obj.get("result", "")),
+        session_ref=str(result_obj.get("session_id") or "") or fallback_session,
+        cost_usd=result_obj.get("total_cost_usd"),
+        error=str(result_obj.get("result", ""))[:500] if is_error else None,
+        model=model,
+        usage=usage,
+        agent_turns=int(turns) if turns is not None else None,
+    )
+
+
 @dataclass
 class ClaudeRunner:
     model: str | None = None
@@ -114,14 +147,9 @@ class ClaudeRunner:
             detail = stderr.strip()[-500:] or f"exit {proc.returncode}"
             if proc.returncode in (-9, 137):
                 detail = f"claude killed after {timeout_s}s timeout"
-            return TurnResult(ok=False, error=detail, session_ref=session_ref)
+            return TurnResult(ok=False, error=detail, session_ref=session_ref,
+                              model=self.model)
         if result_obj is None:
             return TurnResult(ok=False, error="claude stream ended without a result event",
-                              session_ref=session_ref)
-        return TurnResult(
-            ok=not result_obj.get("is_error", False),
-            text=str(result_obj.get("result", "")),
-            session_ref=str(result_obj.get("session_id") or "") or session_ref,
-            cost_usd=result_obj.get("total_cost_usd"),
-            error=str(result_obj.get("result", ""))[:500] if result_obj.get("is_error") else None,
-        )
+                              session_ref=session_ref, model=self.model)
+        return turn_from_result(result_obj, session_ref, self.model)

@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `ea2c4a758cf91113b837b08fe55d56d17d6feb4562f2689af592d7323993f248`.
+Contract version 1, hash `10c601552e714462e672be721e5d0a1a03d7c20c981ef40e2fc6b9c23e9f0fc7`.
 
 ## Roles
 
@@ -48,17 +48,17 @@ Contract version 1, hash `ea2c4a758cf91113b837b08fe55d56d17d6feb4562f2689af592d7
 | control | `sentinel>security` | `correction.issued` |
 | control | `sentinel>specifier` | `correction.issued` |
 | control | `specifier>sentinel` | `correction.acknowledged` |
-| system | `analyst>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `builder>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `coordinator>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `interpreter>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `owner>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `qa>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `reviewer>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `security>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `sentinel>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `specifier>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `toolgate>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `analyst>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `builder>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `coordinator>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `interpreter>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `owner>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `qa>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `reviewer>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `security>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `sentinel>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `specifier>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `toolgate>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 
 ## Message types
 
@@ -115,6 +115,7 @@ One JSON Schema per type lives in `contract/schema/`.
 | `stories.written` | work | `stories` |
 | `story.completed` | plan | `story_id`, `summary` |
 | `update.shared` | chat | `text` |
+| `usage.reported` | system | `role`, `model`, `trigger_type`, `fresh_session` |
 | `worker.failed` | system | `role`, `kind`, `detail` |
 | `worker.started` | system | `role`, `host`, `pid`, `worker_version`, `contract_hash` |
 | `worker.stopped` | system | `role`, `host`, `pid` |

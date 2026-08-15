@@ -23,6 +23,7 @@ import redis
 
 from relay.bus import groups
 from relay.contract.envelope import Envelope
+from relay.chat_style import MAX_OWNER_TEXT, overlong, unanswerable_questions
 from relay.lexicon import correction_note, scan_payload
 from relay.ledger.reader import read_all
 from relay.runners.base import Runner
@@ -161,6 +162,7 @@ class SentinelWorker(Worker):
 
     def _check_mechanical(self, env: Envelope) -> None:
         self._check_vocabulary(env)
+        self._check_owner_facing(env)
         if env.type == "acceptance.judged":
             run_id = str(env.payload.get("run_id"))
             if run_id not in self.completed_runs:
@@ -183,6 +185,27 @@ class SentinelWorker(Worker):
         if offending:
             self._correct(env, "language.non-contract-unit", remedy,
                           correction_note(offending))
+
+    def _check_owner_facing(self, env: Envelope) -> None:
+        """The Owner gets a few sentences, and never a blocker they cannot
+        answer. Both fail silently otherwise: a wall of text is not an error,
+        and an option-less question still validates against the contract."""
+        if env.to_role != "owner" or env.from_role != "interpreter":
+            return
+        over = overlong(env.type, env.payload)
+        if over:
+            self._correct(env, "chat.wall-of-text", "acknowledge_rule",
+                          f"{over + MAX_OWNER_TEXT} characters to the Owner, "
+                          f"{MAX_OWNER_TEXT} is the ceiling. A few sentences: what "
+                          f"changed or what you need, detail only if asked.")
+        if env.type == "questions.asked":
+            unanswerable = unanswerable_questions(env.payload)
+            if unanswerable:
+                self._correct(
+                    env, "chat.no-options", "resend_on_contract",
+                    f"asked the Owner {len(unanswerable)} question(s) with no named "
+                    f"options and recommendation: \"{unanswerable[0]}\". Give 2-4 "
+                    f"options, one line each, and recommend one with the reason.")
 
     def _correct(self, env: Envelope, rule: str, remedy: str, note: str) -> None:
         if (env.event_id, rule) in self.corrected:

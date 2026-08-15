@@ -574,8 +574,11 @@ def costs(swarm: str = SwarmOpt) -> None:
     from relay.cli.context import find_project
     from relay.cli.costs import analyze
 
-    project = find_project()
-    _swarm(swarm)  # validates we're in a relay project
+    try:
+        project = find_project()
+    except NoProjectError as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1) from None
     per_role, sessions = analyze(project)
     if not per_role:
         console.print("no session transcripts found for this project yet")

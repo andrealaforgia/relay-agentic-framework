@@ -72,3 +72,35 @@ def should_nudge(
     not just ring."""
     return bool(waiting) and quiet_for_s >= QUIET_BEFORE_NUDGE_S \
         and since_last_nudge_s >= NUDGE_COOLDOWN_S
+
+
+# If the first return is swallowed — a burst of typed input can read as a
+# paste, whose Enter lands in the box instead of submitting — we follow up
+# with a BARE return. Never the text again: that is how a session ends up with
+# a column of unsent nudges in its prompt.
+RETURN_RETRY_AFTER_S = 4.0
+MAX_RETURN_RETRIES = 3
+RETURN = ""          # empty line: the proxy appends the return itself
+
+
+def next_keystroke(
+    *,
+    waiting: list[str],
+    swarm: str,
+    quiet_for_s: float,
+    since_last_nudge_s: float,
+    returns_sent: int,
+) -> str | None:
+    """What to type now, if anything.
+
+    First the nudge. Then, while the mail is still sitting there, nothing but
+    returns — because the evidence that it worked is the mail being consumed,
+    and we can watch for that instead of guessing.
+    """
+    if not waiting or quiet_for_s < QUIET_BEFORE_NUDGE_S:
+        return None
+    if returns_sent == 0:
+        return nudge_text(swarm) if since_last_nudge_s >= NUDGE_COOLDOWN_S else None
+    if returns_sent <= MAX_RETURN_RETRIES and since_last_nudge_s >= RETURN_RETRY_AFTER_S:
+        return RETURN
+    return None

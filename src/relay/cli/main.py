@@ -467,12 +467,11 @@ def chat(
     from relay.cli import pty_proxy
     from relay.cli.wake import (
         NUDGE_COOLDOWN_S,
-        nudge_text,
-        should_nudge,
+        next_keystroke,
         undelivered_for_interpreter,
     )
 
-    state = {"checked": 0.0, "nudged": -NUDGE_COOLDOWN_S}
+    state = {"checked": 0.0, "typed": -NUDGE_COOLDOWN_S, "returns": 0.0}
 
     def knock(quiet_for_s: float) -> str | None:
         now = time.monotonic()
@@ -483,11 +482,18 @@ def chat(
             waiting = undelivered_for_interpreter(client, name)
         except Exception:                            # never take the session down
             return None
-        if not should_nudge(waiting=waiting, quiet_for_s=quiet_for_s,
-                            since_last_nudge_s=now - state["nudged"]):
+        if not waiting:                              # collected: start clean next time
+            state["returns"] = 0.0
             return None
-        state["nudged"] = now
-        return nudge_text(name)
+        keystroke = next_keystroke(
+            waiting=waiting, swarm=name, quiet_for_s=quiet_for_s,
+            since_last_nudge_s=now - state["typed"], returns_sent=int(state["returns"]),
+        )
+        if keystroke is None:
+            return None
+        state["typed"] = now
+        state["returns"] += 1
+        return keystroke
 
     raise typer.Exit(pty_proxy.run(cmd, session_env, on_idle=knock))
 

@@ -29,6 +29,11 @@ from collections.abc import Callable
 from types import FrameType
 
 POLL_S = 0.5
+# Typed text arriving in one burst reads as a paste, and a paste's Enter goes
+# into the input box instead of submitting it. So pause before the return, and
+# send a second one: on an empty box the extra return is a no-op, and if the
+# first was swallowed as a newline the second submits.
+TYPE_SETTLE_S = 0.25
 
 
 def _keyboard_fd() -> int | None:
@@ -48,6 +53,16 @@ def _propagate_winsize(master_fd: int, keyboard: int | None) -> None:
         fcntl.ioctl(master_fd, termios.TIOCSWINSZ, size)
     except OSError:
         pass
+
+
+def _type(master_fd: int, text: str) -> None:
+    """Type into the session the way a person does: the words, a beat, then
+    return. An empty string is a bare return, which is how a swallowed one is
+    retried without re-typing the message."""
+    if text:
+        os.write(master_fd, text.encode())
+        time.sleep(TYPE_SETTLE_S)
+    os.write(master_fd, b"\r")
 
 
 def run(
@@ -113,8 +128,8 @@ def run(
 
             if on_idle is not None:
                 typed = on_idle(time.monotonic() - last_key)
-                if typed:
-                    os.write(master_fd, typed.encode() + b"\r")
+                if typed is not None:
+                    _type(master_fd, typed)
     finally:
         if saved is not None and keyboard is not None:
             termios.tcsetattr(keyboard, termios.TCSAFLUSH, saved)

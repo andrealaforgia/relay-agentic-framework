@@ -303,6 +303,9 @@ message_types:
       properties:
         story_id: { $ref: "#/$defs/StoryId" }
         summary: { type: string }
+        # a story is a vertical slice or it is not a story: the Owner checks
+        # at the end of EVERY story, not only at the end of an iteration
+        how_to_try: { type: string, maxLength: 600 }
 
   iteration.finished:
     payload_schema:

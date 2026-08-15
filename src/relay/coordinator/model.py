@@ -177,6 +177,15 @@ class SwarmState:
         behaviours = self.story_behaviours(story_id)
         return bool(behaviours) and all(b.state == BehaviourState.DONE for b in behaviours)
 
+    def story_how_to_try(self, story_id: str) -> str:
+        """How the Owner runs what this story delivered: the latest commands
+        a builder gave inside it. Empty when nothing runnable was reported —
+        which the Interpreter must chase, never paper over."""
+        for b in reversed(self.story_behaviours(story_id)):
+            if b.how_to_run:
+                return b.how_to_run
+        return ""
+
     def how_to_try(self, iteration_id: str) -> str:
         """How the owner runs the increment: the INT behaviour's instructions,
         else the latest any builder provided."""

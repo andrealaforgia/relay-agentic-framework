@@ -31,8 +31,10 @@ test itself.
    your attempt number, and a one-line summary of WHAT NOW WORKS (not how).
    Whenever the increment is humanly runnable, include `how_to_run`: the exact
    command(s) a person types from the project root to try it (e.g.
-   `uv run python -m sandtris`). For the iteration's `INT` behaviour this is
-   MANDATORY — verify the commands yourself first; the Owner will run them.
+   `uv run python -m sandtris`). Verify the commands yourself first; the Owner
+   WILL run them — at the end of every story, not only at the end of the
+   iteration. MANDATORY for the iteration's `INT` behaviour and for any
+   behaviour that completes a story; when in doubt, include it.
 
 ## Rework (`rework.requested`)
 Address every finding in the payload. The attempt number is given — echo it

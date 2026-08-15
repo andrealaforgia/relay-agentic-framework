@@ -218,3 +218,40 @@ def test_invalid_roadmap_rejected_in_code(client, publisher) -> None:
     assert len(mini.sent("roadmap.rejected")) == 1
     assert len(mini.sent("spec.requested")) == 0
     assert mini.state.roadmap_committed is False
+
+
+def test_story_completion_tells_the_owner_how_to_try_it(swarm: MiniSwarm) -> None:
+    """The Owner checks at the end of every STORY, not only every iteration:
+    a story is a vertical slice or it is not a story. The coordinator carries
+    the builder's own commands through, so the Interpreter has something real
+    to relay."""
+    p = swarm.publisher
+    p.send("specifier", "coordinator", "spec.written",
+           {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/acceptance/test_b1.py"],
+            "commit_sha": SHA_SPEC, "touches": ["src/rooms/cli.py"]})
+    swarm.pump()
+    red = swarm.sent("run.requested")[-1]
+    p.send("toolgate", "coordinator", "run.completed",
+           {"run_id": red.payload["run_id"], "kind": "acceptance_test", "commit_sha": SHA_SPEC,
+            "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64})
+    swarm.pump()
+    p.send("builder", "coordinator", "behaviour.built",
+           {"behaviour_id": "I1.S1.B1", "story_id": "I1.S1", "iteration_id": "I1",
+            "commit_sha": SHA_BUILD, "attempt": 1,
+            "how_to_run": "uv run rooms free --now"})
+    swarm.pump()
+    green = swarm.sent("run.requested")[-1]
+    p.send("toolgate", "coordinator", "run.completed",
+           {"run_id": green.payload["run_id"], "kind": "acceptance_test",
+            "commit_sha": SHA_BUILD, "exit_code": 0, "duration_s": 1.0,
+            "output_digest": "e" * 64})
+    swarm.pump()
+    judgement = swarm.sent("judgement.requested")[-1]
+    p.send("specifier", "coordinator", "acceptance.judged",
+           {"behaviour_id": "I1.S1.B1", "verdict": "pass",
+            "run_id": judgement.payload["run_id"]})
+    swarm.pump()
+
+    (completed,) = swarm.sent("story.completed")
+    assert completed.payload["story_id"] == "I1.S1"
+    assert completed.payload["how_to_try"] == "uv run rooms free --now"

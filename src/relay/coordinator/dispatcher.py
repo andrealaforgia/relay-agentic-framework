@@ -364,11 +364,13 @@ class Dispatcher:
                 if not story.gates_passed():
                     continue
             behaviours = state.story_behaviours(story.id)
+            how_to_try = state.story_how_to_try(story.id)
             self._publisher.send(
                 COORDINATOR, "interpreter", "story.completed",
                 {
                     "story_id": story.id,
                     "summary": f"{len(behaviours)} behaviours accepted for '{story.title}'.",
+                    **({"how_to_try": how_to_try} if how_to_try else {}),
                 },
                 story_id=story.id, iteration_id=story.iteration_id,
             )

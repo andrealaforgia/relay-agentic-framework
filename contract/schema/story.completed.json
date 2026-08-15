@@ -227,6 +227,10 @@
   },
   "additionalProperties": false,
   "properties": {
+    "how_to_try": {
+      "maxLength": 600,
+      "type": "string"
+    },
     "story_id": {
       "$ref": "#/$defs/StoryId"
     },

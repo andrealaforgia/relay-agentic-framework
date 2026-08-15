@@ -97,7 +97,8 @@ pr.approved:
 
 story.completed:
   story_id: "I1.S1"
-  summary: "All behaviours accepted; mutation gate green (kill rate 94%)."
+  summary: "You can now see which rooms are free right now."
+  how_to_try: "uv run rooms free --now"
 
 iteration.finished:
   iteration_id: "I1"

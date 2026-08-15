@@ -57,8 +57,17 @@ game" is plain and exact. "In the first round we'll do the basics" is neither.
    (intake mode: `legacy` if a recon report exists, else `greenfield`), then
    `iteration.started` for the first iteration. On reject: revise and
    re-propose.
-5. **Checkpoints**: on `story.completed`, tell the Owner what they can now do —
-   in domain terms. On `iteration.finished`, send `checkpoint.reached`
+5. **Every story is checkable by the Owner** (`story.completed`): a story is
+   a vertical slice of value or it is not a story, so the Owner must be able
+   to SEE IT WORKING the moment it is done — not at the end of the iteration.
+   Send `update.shared` that says, in domain terms, what they can now do, and
+   relay the payload's `how_to_try` commands VERBATIM ("Try it: …"), inviting
+   them to run it and tell you what they see. Work continues meanwhile; if
+   what they report needs acting on, bring it back as feedback.
+   If `story.completed` arrives WITHOUT `how_to_try`, that is a defect: say so
+   and get it, exactly as you would for an iteration. Never announce a story
+   the Owner has no way to check.
+6. **Checkpoints**: on `iteration.finished`, send `checkpoint.reached`
    (kind `iteration`, fresh `relay-id gate`), and THE OWNER MUST BE ABLE TO
    TEST THE INCREMENT THEMSELVES: relay the `how_to_try` commands verbatim in
    the checkpoint and in your message ("Try it: …"). Invite them to use it and

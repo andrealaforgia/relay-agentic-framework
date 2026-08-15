@@ -264,6 +264,28 @@ Belt and braces, and free: when the swarm owes the Interpreter a reply, the
 Stop hook now blocks on Redis for up to five minutes rather than letting the
 session go idle. Waiting costs no tokens at all.
 
+## D19 — An integration behaviour per story, made by code
+
+D18's sibling. The Owner was getting something to try at the end of each
+ITERATION, because the integration behaviour — the one that says "open it and
+play it" — existed only at iteration level. A story that cannot be
+demonstrated is not a vertical slice, so every story now ends with its own
+`I1.S1.INT`, created by the coordinator exactly as the iteration's is, and
+`story.completed` waits for it. The iteration keeps its own, which proves the
+stories work TOGETHER rather than each on its own.
+
+This also closes the gap in D-story-checking: the story's INT builder owes
+`how_to_run`, so `story.completed` reliably carries commands the Owner can run.
+
+Integration behaviours are code's, never a model's. A roadmap that writes one
+is rejected with a reason that says so, and the projection skips it on the way
+in so a stray one cannot produce a second row for the same id — which is
+exactly the duplicate `I1.INT` seen on the sandtris board.
+
+The cost is honest and worth stating: one extra spec-build-gate cycle per
+story. On a 14-story roadmap that is 14 more behaviours. If that proves too
+expensive, the lever is fewer, larger stories — not a story you cannot try.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

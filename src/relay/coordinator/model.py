@@ -91,6 +91,7 @@ class Story:
     iteration_id: str
     title: str
     behaviour_ids: list[str] = field(default_factory=list)
+    int_behaviour_id: str = ""          # the story's own end-to-end behaviour
     done_announced: bool = False        # story.completed seen on the ledger
     mutation_run_id: str | None = None  # in-flight or judged mutation run
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
@@ -150,6 +151,9 @@ class SwarmState:
     runs: dict[str, RunInfo] = field(default_factory=dict)
     # ordering as authored in the roadmap; INT behaviours appended last per iteration
     behaviour_order: list[str] = field(default_factory=list)
+    # integration behaviours a model wrote into the roadmap: skipped on the
+    # way in (code makes its own) and reported as a validation error
+    roadmap_wrote_integration: list[str] = field(default_factory=list)
     # last progress.reported announced, as (iteration_id, behaviours_done) — derived
     # from the ledger so a restarted coordinator never re-announces
     last_progress: tuple[str, int] | None = None

@@ -61,6 +61,7 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
     state.stories.clear()
     state.behaviours.clear()
     state.behaviour_order.clear()
+    state.roadmap_wrote_integration.clear()
     state.roadmap_committed = True
     state.intake_mode = str(env.payload["intake"]["mode"])
 
@@ -72,6 +73,10 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
             state.stories[story.id] = story
             iteration.story_ids.append(story.id)
             for ac in st["acceptance_criteria"]:
+                if str(ac["id"]).endswith(".INT"):
+                    # code makes these; the roadmap check reports it loudly
+                    state.roadmap_wrote_integration.append(str(ac["id"]))
+                    continue
                 behaviour = done.get(ac["id"]) or Behaviour(
                     id=ac["id"],
                     iteration_id=iteration.id,
@@ -81,25 +86,56 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
                     title=str(ac.get("title", "")),
                 )
                 state.behaviours[behaviour.id] = behaviour
-                state.behaviour_order.append(behaviour.id)
+                if behaviour.id not in state.behaviour_order:
+                    state.behaviour_order.append(behaviour.id)
                 story.behaviour_ids.append(behaviour.id)
-        # The mandatory iteration-level integration behaviour — created by
-        # code, so it cannot be forgotten (DECISIONS.md, lesson 4).
+            # Every story ends with its own integration behaviour, created by
+            # code so it cannot be forgotten or written by a model. A story is
+            # a vertical slice or it is not a story: this is where the Owner
+            # gets something to try, without waiting for the iteration.
+            _add_integration(
+                state, story.behaviour_ids, iteration.id, f"{story.id}.INT",
+                story_id=story.id,
+                ac_text=(f"Story {story.id} works end to end through the product's real "
+                         f"surface: {story.title}"),
+                title=f"{story.title} — working end to end"[:80],
+                done=done,
+            )
+            story.int_behaviour_id = f"{story.id}.INT"
+        # and the iteration's own, which proves the stories work TOGETHER
         int_id = f"{iteration.id}.INT"
-        int_behaviour = done.get(int_id) or Behaviour(
-            id=int_id,
-            iteration_id=iteration.id,
-            story_id=None,
-            kind="integration",
-            ac_text=(
-                f"The integrated increment of {iteration.id} is demonstrable end to end: "
-                f"{iteration.increment}"
-            ),
+        _add_integration(
+            state, None, iteration.id, int_id, story_id=None,
+            ac_text=(f"The integrated increment of {iteration.id} is demonstrable end to "
+                     f"end: {iteration.increment}"),
             title=f"{iteration.increment} — working end to end"[:80],
+            done=done,
         )
         iteration.int_behaviour_id = int_id
-        state.behaviours[int_id] = int_behaviour
+
+
+def _add_integration(
+    state: SwarmState,
+    belongs_to: list[str] | None,
+    iteration_id: str,
+    int_id: str,
+    *,
+    story_id: str | None,
+    ac_text: str,
+    title: str,
+    done: dict[str, Behaviour],
+) -> None:
+    """Create an integration behaviour. Never authored by a model: the roadmap
+    is validated to reject `.INT` ids precisely so this stays code's job."""
+    behaviour = done.get(int_id) or Behaviour(
+        id=int_id, iteration_id=iteration_id, story_id=story_id,
+        kind="integration", ac_text=ac_text, title=title,
+    )
+    state.behaviours[int_id] = behaviour
+    if int_id not in state.behaviour_order:
         state.behaviour_order.append(int_id)
+    if belongs_to is not None and int_id not in belongs_to:
+        belongs_to.append(int_id)
 
 
 def _roadmap_rejected(state: SwarmState, env: Envelope) -> None:
@@ -281,7 +317,13 @@ def _build_requested(state: SwarmState, env: Envelope) -> None:
 def _rework_requested(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
     if b:
-        b.state = BehaviourState.BUILD_DISPATCHED
+        # rework goes to whoever can act on it, and the state must name that
+        # role: test_design/mutation findings are the specifier's, and parking
+        # such a behaviour in BUILD_DISPATCHED makes the specifier's answering
+        # spec.written unmatchable, so the behaviour waits forever for a build
+        # nobody was asked for.
+        b.state = (BehaviourState.SPEC_DISPATCHED if env.to_role == "specifier"
+                   else BehaviourState.BUILD_DISPATCHED)
         b.attempt = int(env.payload["attempt"])
         b.pending_gates.clear()
         # a story-level gate failure loops back through this behaviour: the

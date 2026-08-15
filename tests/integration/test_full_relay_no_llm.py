@@ -124,8 +124,11 @@ class Fakes:
             bid = payload["behaviour_id"]
             test_file = self.project / "tests" / "acceptance" / f"test_{bid.lower().replace('.', '_')}.py"
             test_file.parent.mkdir(parents=True, exist_ok=True)
-            if payload["kind"] == "integration":
+            if payload["kind"] == "integration" and bid == "I1.INT":
                 body = "import rooms\n\ndef test_increment_runs_end_to_end():\n    assert rooms.main() == 0\n"
+            elif payload["kind"] == "integration":
+                body = ("import rooms\n\ndef test_story_works_end_to_end():\n"
+                        "    assert rooms.list_free_rooms() == ['R2']\n")
             else:
                 body = "import rooms\n\ndef test_free_rooms_listed():\n    assert rooms.free() == ['R2']\n"
             test_file.write_text(body)
@@ -151,15 +154,17 @@ class Fakes:
             bid = payload["behaviour_id"]
             rooms = self.project / "rooms.py"
             existing = rooms.read_text() if rooms.exists() else ""
-            if bid.endswith(".INT") and "def main" not in existing:
+            if bid == "I1.INT" and "def main" not in existing:
                 rooms.write_text(existing + "\ndef main():\n    print(free())\n    return 0\n")
+            elif bid.endswith(".INT") and "def list_free_rooms" not in existing:
+                rooms.write_text(existing + "\ndef list_free_rooms():\n    return free()\n")
             elif not bid.endswith(".INT") and "def free" not in existing:
                 rooms.write_text("def free():\n    return ['R2']\n")
             _git(self.project, "add", "-A")
             _git(self.project, "commit", "-qm", f"[{bid}] implement", "--allow-empty")
             self.pub.send("builder", "coordinator", "behaviour.built",
                           {"behaviour_id": bid,
-                           "story_id": None if bid.endswith(".INT") else "I1.S1",
+                           "story_id": None if bid == "I1.INT" else "I1.S1",
                            "iteration_id": "I1",
                            "commit_sha": _git(self.project, "rev-parse", "HEAD"),
                            "attempt": payload.get("attempt", 1),
@@ -294,5 +299,5 @@ def test_crash_and_cold_restart_finishes_exactly(client, publisher, project, tmp
     for f in spec_requests:
         bid = json.loads(f["payload"])["behaviour_id"]
         by_behaviour[bid] = by_behaviour.get(bid, 0) + 1
-    assert by_behaviour == {"I1.S1.B1": 1, "I1.INT": 1}
+    assert by_behaviour == {"I1.S1.B1": 1, "I1.S1.INT": 1, "I1.INT": 1}
     assert audit_ledger(client, validator, "testswarm").ok

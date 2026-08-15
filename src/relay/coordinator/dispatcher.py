@@ -119,6 +119,13 @@ class Dispatcher:
         for b in state.behaviours.values():
             if b.story_id and not b.id.startswith(f"{b.story_id}."):
                 errors.append(f"behaviour {b.id} does not belong to story {b.story_id}")
+        if state.roadmap_wrote_integration:
+            errors.append(
+                f"the roadmap writes integration behaviours "
+                f"({', '.join(sorted(set(state.roadmap_wrote_integration)))}): integration "
+                f"behaviours are created by the coordinator, one per story and one per "
+                f"iteration — do not write them into the roadmap"
+            )
         for iteration in state.iterations.values():
             if not iteration.increment.strip():
                 errors.append(f"iteration {iteration.id} has no demonstrable increment")

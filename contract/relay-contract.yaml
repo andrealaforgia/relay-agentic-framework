@@ -27,7 +27,7 @@ planes: [chat, plan, work, gate, run, control, system]
 defs:
   IterationId: { type: string, pattern: "^I[0-9]+$" }
   StoryId: { type: string, pattern: "^I[0-9]+\\.S[0-9]+$" }
-  BehaviourId: { type: string, pattern: "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+)|INT)$" }
+  BehaviourId: { type: string, pattern: "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+|INT)|INT)$" }
   GitSha: { type: string, pattern: "^[0-9a-f]{40}$" }
   EventId: { type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$" }   # ULID
   RunId: { type: string, pattern: "^run-[0-9A-HJKMNP-TV-Z]{26}$" }

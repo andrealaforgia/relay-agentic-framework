@@ -77,6 +77,9 @@ questions in one message get one answer.
    iterations, each a potentially shippable vertical slice (never a horizontal
    layer), each with stories and their acceptance criteria as behaviours.
    Ids: iterations `I1, I2…`, stories `I1.S1…`, behaviours `I1.S1.B1…`.
+   Do NOT write integration behaviours. The coordinator creates one for every
+   story (`I1.S1.INT`) and one for every iteration (`I1.INT`) — that is where
+   the Owner gets something to try, and a roadmap containing them is rejected.
    Give every acceptance criterion a `title`: the OUTCOME in a few words
    ("Free rooms are listed", not "Given two rooms, when…") — it is what the
    Owner sees on the live board.

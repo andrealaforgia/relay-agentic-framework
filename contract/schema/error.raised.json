@@ -1,7 +1,7 @@
 {
   "$defs": {
     "BehaviourId": {
-      "pattern": "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+)|INT)$",
+      "pattern": "^I[0-9]+\\.(S[0-9]+\\.(B[0-9]+|CHAR[0-9]+|INT)|INT)$",
       "type": "string"
     },
     "BehaviourKind": {

@@ -115,7 +115,8 @@ def test_iteration_finished_carries_how_to_try(client, publisher) -> None:
 
     swarm = _start(client, publisher)
     _drive_behaviour_to_done(swarm, "I1.S1.B1")
-    # drive INT, with the builder providing run instructions
+    _drive_behaviour_to_done(swarm, "I1.S1.INT")   # the story's own, first
+    # then the iteration INT, with the builder providing run instructions
     publisher.send("specifier", "coordinator", "spec.written",
                    {"behaviour_id": "I1.INT", "test_paths": ["tests/int.py"],
                     "commit_sha": SHA_SPEC, "touches": []})

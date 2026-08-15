@@ -82,6 +82,7 @@ def _behaviour_to_done_gated(swarm: MiniSwarm, bid: str) -> None:
 def test_fully_gated_iteration_with_mutation_security_and_pr(client, publisher) -> None:
     swarm = _start(client, publisher)
     _behaviour_to_done_gated(swarm, "I1.S1.B1")
+    _behaviour_to_done_gated(swarm, "I1.S1.INT")    # the story closes on its own INT
 
     # story gate: mutation run requested by the coordinator, judged by qa
     mut_run = [r for r in swarm.sent("run.requested") if r.payload["kind"] == "mutation"]
@@ -140,6 +141,7 @@ def test_gate_failure_causes_rework_with_findings(client, publisher) -> None:
 def test_mutation_gate_failure_reworks_and_reruns_mutation(client, publisher) -> None:
     swarm = _start(client, publisher)
     _behaviour_to_done_gated(swarm, "I1.S1.B1")
+    _behaviour_to_done_gated(swarm, "I1.S1.INT")
     mut_run = [r for r in swarm.sent("run.requested") if r.payload["kind"] == "mutation"][-1]
     publisher.send("toolgate", "coordinator", "run.completed",
                    {"run_id": mut_run.payload["run_id"], "kind": "mutation",

@@ -144,3 +144,36 @@ def test_strikes_escalate_to_interpreter(client, publisher, tmp_path, monkeypatc
     # once escalated, no repeat escalation for the same role
     sentinel.on_tick()
     assert len(_events(client, "escalation.raised")) == 1
+
+
+def test_invented_units_of_work_are_corrected_without_a_model(client, publisher, tmp_path) -> None:
+    """A roadmap that promises 'a first round' never reaches the Owner
+    unchallenged — and the challenge costs no model turn (D1, D14)."""
+    publisher.send(
+        "interpreter", "owner", "roadmap.proposed",
+        {"narrative": "In the first round we deliver the basics.",
+         "gate_id": "gate-01J5AB3CDEF4GH5JK6MN7PQ8RS",
+         "roadmap": {"iterations": [{
+             "id": "I1", "goal": "Play a game", "increment": "A playable game",
+             "stories": [{"id": "I1.S1", "title": "Place a mark",
+                          "narrative": "As a player I want to place a mark",
+                          "acceptance_criteria": [{"id": "I1.S1.B1", "text": "Given…"}]}],
+         }]}},
+    )
+    sentinel = _sentinel(client, tmp_path)
+    sentinel.run_forever(block_ms=1, max_cycles=1)
+
+    (correction,) = _events(client, "correction.issued")
+    assert correction.to_role == "interpreter"
+    assert correction.payload["rule_id"] == "language.non-contract-unit"
+    assert correction.payload["required_remedy"] == "resend_on_contract"
+    assert "first round" in correction.payload["note"]
+    assert "Iteration" in correction.payload["note"]
+
+
+def test_contract_vocabulary_draws_no_correction(client, publisher, tmp_path) -> None:
+    publisher.send("interpreter", "owner", "update.shared",
+                   {"text": "Iteration I1 is under way; story I1.S1 lands first."})
+    sentinel = _sentinel(client, tmp_path)
+    sentinel.run_forever(block_ms=1, max_cycles=1)
+    assert _events(client, "correction.issued") == []

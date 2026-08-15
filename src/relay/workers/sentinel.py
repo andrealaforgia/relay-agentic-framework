@@ -23,6 +23,7 @@ import redis
 
 from relay.bus import groups
 from relay.contract.envelope import Envelope
+from relay.lexicon import correction_note, scan_payload
 from relay.ledger.reader import read_all
 from relay.runners.base import Runner
 from relay.workers.base import Worker, _now
@@ -35,6 +36,15 @@ BATCH_MAX_AGE_S = 120.0
 ACK_TIMEOUT_S = 600.0
 STRIKE_LIMIT = 3
 AUDITED_PLANES = ("chat", "plan", "work", "gate")
+# where the roadmap is described in prose: the vocabulary check reads these
+VOCABULARY_AUDITED = {
+    "roadmap.proposed": "resend_on_contract",   # not yet approved: republish it right
+    "stories.written": "resend_on_contract",
+    "update.shared": "acknowledge_rule",        # already said to the Owner: say it
+    "checkpoint.reached": "acknowledge_rule",   # properly next time
+    "questions.asked": "acknowledge_rule",
+    "questions.raised": "acknowledge_rule",
+}
 TURN_TIMEOUT_S = 600
 
 
@@ -150,6 +160,7 @@ class SentinelWorker(Worker):
                 self.expected_seq = max(self.expected_seq, result.seq + 1)
 
     def _check_mechanical(self, env: Envelope) -> None:
+        self._check_vocabulary(env)
         if env.type == "acceptance.judged":
             run_id = str(env.payload.get("run_id"))
             if run_id not in self.completed_runs:
@@ -160,6 +171,18 @@ class SentinelWorker(Worker):
             if gate_id not in self.requested_gates:
                 self._correct(env, "gate.never-requested", "retract",
                               f"verdict for {gate_id}, but no gate.requested exists")
+
+    def _check_vocabulary(self, env: Envelope) -> None:
+        """Work is Iteration > Story > Behaviour. Anything else naming a unit
+        of work is drift, and drift reaches the Owner. Deterministic: no model
+        turn is spent deciding this."""
+        remedy = VOCABULARY_AUDITED.get(env.type)
+        if remedy is None or env.from_role not in self.validator.contract.assistants:
+            return
+        offending = scan_payload(env.payload)
+        if offending:
+            self._correct(env, "language.non-contract-unit", remedy,
+                          correction_note(offending))
 
     def _correct(self, env: Envelope, rule: str, remedy: str, note: str) -> None:
         if (env.event_id, rule) in self.corrected:

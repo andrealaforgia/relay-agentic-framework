@@ -103,12 +103,16 @@ def start_worker(swarm: str, role: str, project: Path) -> int:
         return int(pf.read_text())
     reap_orphans(swarm, role)  # nothing tracked: any survivor is a zombie
     log = open(logfile(swarm, role), "a")  # noqa: SIM115 — handed to the child
+    # the model's only output channel is `relay-send`: the worker, and the
+    # runner it starts, must be able to find it however relay was launched
+    from relay.cli.entrypoints import env_with_entrypoints
+
     proc = subprocess.Popen(
         [sys.executable, "-m", "relay.workers.run",
          "--swarm", swarm, "--role", role, "--project", str(project),
          "--state-root", str(state_root())],
         stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        start_new_session=True, env=env_with_entrypoints(),
     )
     pf.write_text(str(proc.pid))
     return proc.pid

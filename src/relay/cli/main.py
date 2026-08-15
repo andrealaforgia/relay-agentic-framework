@@ -445,7 +445,12 @@ def chat(
     if kickoff:
         cmd.append(kickoff)
     os.chdir(project)
-    os.execvp("claude", cmd)
+    # execvpe, not execvp: the session's hooks and every relay-send the
+    # Interpreter runs need the relay commands on PATH, and a login shell
+    # does not read ~/.zshrc
+    from relay.cli.entrypoints import env_with_entrypoints
+
+    os.execvpe("claude", cmd, env_with_entrypoints())
 
 
 @app.command()

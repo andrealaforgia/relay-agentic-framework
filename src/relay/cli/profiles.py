@@ -57,8 +57,11 @@ def settings_path(project: Path, role: str) -> Path:
 
 
 def write_profiles(project: Path, swarm: str) -> list[Path]:
+    from relay.cli.entrypoints import relay_command
+
     directory = settings_dir(project)
     directory.mkdir(parents=True, exist_ok=True)
+    inbox = relay_command("relay-inbox")
     written = []
     for role, perms in PROFILES.items():
         settings: dict[str, object] = {"permissions": perms}
@@ -68,14 +71,17 @@ def write_profiles(project: Path, swarm: str) -> list[Path]:
             # - Stop: pending mail blocks the stop and feeds in as instruction
             # - UserPromptSubmit: the owner's words go on the ledger, queued
             #   mail rides in as extra context
+            # Absolute path on purpose: hooks run under `/bin/sh -c` with
+            # whatever PATH the session inherited, which on a login shell does
+            # not include ~/.local/bin.
             settings["hooks"] = {
                 "Stop": [{"hooks": [{
                     "type": "command",
-                    "command": f"relay-inbox --swarm {swarm} --hook-stop",
+                    "command": f"{inbox} --swarm {swarm} --hook-stop",
                 }]}],
                 "UserPromptSubmit": [{"hooks": [{
                     "type": "command",
-                    "command": f"relay-inbox --swarm {swarm} --hook-prompt",
+                    "command": f"{inbox} --swarm {swarm} --hook-prompt",
                 }]}],
             }
         path = settings_path(project, role)

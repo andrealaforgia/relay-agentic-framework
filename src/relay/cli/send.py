@@ -55,6 +55,13 @@ def main() -> int:
         )
     except ContractError as e:
         print(str(e), file=sys.stderr)
+        # say what a valid one looks like, so the fix is in this turn and not
+        # in a filesystem search
+        from relay.contract.cheatsheet import required_fields
+
+        needed = required_fields(load_contract(), args.type_)
+        if needed:
+            print(f"'{args.type_}' requires: {', '.join(needed)}", file=sys.stderr)
         return 1
     print(json.dumps({"event_id": result.event_id, "seq": result.seq, "stream_id": result.stream_id}))
     return 0

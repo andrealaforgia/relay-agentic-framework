@@ -18,6 +18,7 @@ import redis
 
 from relay.bus import dlq
 from relay.bus.keys import ledger_key
+from relay.contract import cheatsheet
 from relay.contract.envelope import Envelope
 from relay.runners.base import Runner
 from relay.workers import briefing
@@ -41,6 +42,8 @@ PROTOCOL_REMINDER = """\
       --reply-to {event_id} --payload '<json>'
 - relay-send validates the edge, type and payload; if it prints an error to stderr, fix the payload and retry within this same turn.
 - You may have partially handled this message before a restart: check the current state (git log, existing files, the error text) before redoing work.
+- Work only inside this project directory. The framework's own source is not yours to read or change.
+{vocabulary}
 
 == Triggering message ==
 from: {from_role}    type: {type}    event_id: {event_id}
@@ -63,6 +66,9 @@ class ChainWorker(Worker):
         super().__init__(swarm, role, client=client)
         self.runner = runner
         self.playbook = playbook_path.read_text()
+        # every type this role may publish, with a valid payload for each: the
+        # alternative is a worker running `find /` to discover them
+        self._vocabulary = cheatsheet.for_role(self.validator.contract, role)
         self.workspace = workspace
         self.state_dir = state_dir
         self.state_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +198,7 @@ class ChainWorker(Worker):
             from_role=env.from_role,
             type=env.type,
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
+            vocabulary=self._vocabulary,
         ) + briefing.build(self.workspace, env.type, env.payload) + correction_block
         prompt = base_prompt
 

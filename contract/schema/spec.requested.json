@@ -236,6 +236,30 @@
     "behaviour_id": {
       "$ref": "#/$defs/BehaviourId"
     },
+    "criteria": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "ac_text": {
+            "type": "string"
+          },
+          "behaviour_id": {
+            "$ref": "#/$defs/BehaviourId"
+          },
+          "kind": {
+            "$ref": "#/$defs/BehaviourKind"
+          }
+        },
+        "required": [
+          "behaviour_id",
+          "ac_text",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
     "iteration_id": {
       "$ref": "#/$defs/IterationId"
     },

@@ -11,6 +11,12 @@ test itself.
   with the attempt number).
 
 ## Building (`build.requested`)
+0. **The payload may carry a whole story.** When it has a `behaviours` array,
+   satisfy them ONE AT A TIME in this single session, in the order given:
+   red, green, refactor, commit, push — then the next. One commit and one
+   `behaviour.built` per behaviour, exactly as if they had arrived separately.
+   You get the story in one turn so the codebase is learned once, not so the
+   discipline is skipped.
 1. Work in the project workspace on the current iteration branch
    (`git pull --rebase` first). The payload gives the behaviour id, the spec
    commit and the acceptance test paths. Run the acceptance test first —

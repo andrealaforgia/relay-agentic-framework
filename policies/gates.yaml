@@ -17,3 +17,13 @@ per_iteration:
 
 wip_limit: 1
 max_attempts: 3
+
+# How much work goes into ONE model transaction. `story` hands the specifier a
+# whole story to write tests for, and the builder that story's red tests, so
+# the codebase is explored once instead of once per behaviour — measured at
+# ~34k of fixed setup per turn before any thinking. The discipline is
+# unchanged: one failing test per criterion, one commit per behaviour, gates on
+# the diff, and the builder still never grades its own homework.
+# Set both to `behaviour` to go back to a transaction per slice.
+spec_granularity: story
+build_granularity: story

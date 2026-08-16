@@ -169,26 +169,48 @@ class Dispatcher:
         if len(in_flight) < self._policy.wip_limit:
             for b in behaviours:
                 if b.state == BehaviourState.PLANNED:
-                    published += self._dispatch_spec(b)
+                    published += self._dispatch_spec(b, state)
                     break
         return published
 
-    def _dispatch_spec(self, b: Behaviour) -> int:
+    def _spec_batch(self, state: SwarmState, b: Behaviour) -> list[Behaviour]:
+        """The behaviours this one request covers.
+
+        At story granularity the specifier is handed the whole story: it
+        explores the codebase once and writes every failing test in one turn,
+        still publishing one spec.written per behaviour. At behaviour
+        granularity it is handed one.
+        """
+        if self._policy.spec_granularity != "story" or not b.story_id:
+            return [b]
+        return [
+            other for other in state.story_behaviours(b.story_id)
+            if other.state == BehaviourState.PLANNED
+        ] or [b]
+
+    def _dispatch_spec(self, b: Behaviour, state: SwarmState | None = None) -> int:
         base = self._git.head_sha()
+        batch = self._spec_batch(state, b) if state is not None else [b]
+        payload: dict[str, object] = {
+            "behaviour_id": b.id,
+            **({"story_id": b.story_id} if b.story_id else {}),
+            "iteration_id": b.iteration_id,
+            "ac_text": b.ac_text,
+            "kind": b.kind,
+            "base_sha": base,
+        }
+        if len(batch) > 1:
+            payload["criteria"] = [
+                {"behaviour_id": other.id, "ac_text": other.ac_text, "kind": other.kind}
+                for other in batch
+            ]
         self._publisher.send(
-            COORDINATOR, "specifier", "spec.requested",
-            {
-                "behaviour_id": b.id,
-                **({"story_id": b.story_id} if b.story_id else {}),
-                "iteration_id": b.iteration_id,
-                "ac_text": b.ac_text,
-                "kind": b.kind,
-                "base_sha": base,
-            },
+            COORDINATOR, "specifier", "spec.requested", payload,
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
         )
-        b.state = BehaviourState.SPEC_DISPATCHED
-        b.base_sha = base
+        for other in batch:
+            other.state = BehaviourState.SPEC_DISPATCHED
+            other.base_sha = base
         return 1
 
     def _advance_one(self, state: SwarmState, b: Behaviour) -> int:
@@ -226,16 +248,25 @@ class Dispatcher:
             blocked = self._block_uncharacterized(state, b)
             if blocked:
                 return blocked
+            batch = self._build_batch(state, b)
+            if not batch:
+                return 0            # story granularity: wait for the rest to go red
+            payload: dict[str, object] = {
+                "behaviour_id": b.id,
+                "spec_commit_sha": _require(b.spec_commit, "spec_commit"),
+                "test_paths": b.test_paths,
+            }
+            if len(batch) > 1:
+                payload["behaviours"] = [
+                    {"behaviour_id": other.id, "test_paths": other.test_paths}
+                    for other in batch
+                ]
             self._publisher.send(
-                COORDINATOR, "builder", "build.requested",
-                {
-                    "behaviour_id": b.id,
-                    "spec_commit_sha": _require(b.spec_commit, "spec_commit"),
-                    "test_paths": b.test_paths,
-                },
+                COORDINATOR, "builder", "build.requested", payload,
                 behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
             )
-            b.state = BehaviourState.BUILD_DISPATCHED
+            for other in batch:
+                other.state = BehaviourState.BUILD_DISPATCHED
             return 1
         if b.state == BehaviourState.BUILT:
             return self._request_run(state, b, RunPurpose.AT_GREEN)
@@ -250,6 +281,24 @@ class Dispatcher:
         if b.state == BehaviourState.GATES_PASSED:
             return self._request_judgement(state, b)
         return 0
+
+    def _build_batch(self, state: SwarmState, b: Behaviour) -> list[Behaviour]:
+        """The behaviours this build covers, or nothing if it is not time yet.
+
+        At story granularity the builder gets every red test of the story at
+        once, so it acquires the codebase once and then works behaviour by
+        behaviour inside a warm session. That means waiting until they have ALL
+        gone red — half a story is not a story.
+        """
+        if self._policy.build_granularity != "story" or not b.story_id:
+            return [b]
+        siblings = [
+            other for other in state.story_behaviours(b.story_id)
+            if other.state not in TERMINAL_STATES
+        ]
+        if any(other.state != BehaviourState.RED_VERIFIED for other in siblings):
+            return []
+        return siblings
 
     def _block_uncharacterized(self, state: SwarmState, b: Behaviour) -> int:
         """Never touch legacy risk areas without characterization tests —

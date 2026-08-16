@@ -430,6 +430,21 @@ message_types:
       required: [behaviour_id, iteration_id, ac_text, kind, base_sha]
       additionalProperties: false
       properties:
+        # story granularity: every criterion of the story in ONE request, so
+        # the specifier explores the codebase once instead of once per
+        # behaviour. behaviour_id/ac_text/kind describe the first of them; the
+        # specifier still publishes one spec.written per behaviour.
+        criteria:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [behaviour_id, ac_text, kind]
+            additionalProperties: false
+            properties:
+              behaviour_id: { $ref: "#/$defs/BehaviourId" }
+              ac_text: { type: string }
+              kind: { $ref: "#/$defs/BehaviourKind" }
         behaviour_id: { $ref: "#/$defs/BehaviourId" }
         story_id: { $ref: "#/$defs/StoryId" }
         iteration_id: { $ref: "#/$defs/IterationId" }
@@ -489,6 +504,20 @@ message_types:
       required: [behaviour_id, spec_commit_sha, test_paths]
       additionalProperties: false
       properties:
+        # story granularity: all of the story's red tests in ONE request. The
+        # builder still works behaviour by behaviour and publishes one
+        # behaviour.built each — the discipline is unchanged, the context is
+        # acquired once.
+        behaviours:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [behaviour_id, test_paths]
+            additionalProperties: false
+            properties:
+              behaviour_id: { $ref: "#/$defs/BehaviourId" }
+              test_paths: { type: array, items: { type: string } }
         behaviour_id: { $ref: "#/$defs/BehaviourId" }
         spec_commit_sha: { $ref: "#/$defs/GitSha" }
         test_paths: { type: array, minItems: 1, items: { type: string } }

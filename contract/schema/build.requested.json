@@ -230,6 +230,29 @@
     "behaviour_id": {
       "$ref": "#/$defs/BehaviourId"
     },
+    "behaviours": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "behaviour_id": {
+            "$ref": "#/$defs/BehaviourId"
+          },
+          "test_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "behaviour_id",
+          "test_paths"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
     "instructions": {
       "items": {
         "type": "string"

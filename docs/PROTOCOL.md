@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `412eb794e200e08e55c8ca4b5a15b91911313c0f83f69ae3e64a6a4b84c4e22f`.
+Contract version 1, hash `64e4a5679fea79496a432764eaa354102e82ca5b7556e3b45e4d2c34c31e44f0`.
 
 ## Roles
 

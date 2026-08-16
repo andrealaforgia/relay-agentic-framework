@@ -12,6 +12,12 @@ homework; you are why.
   `rework.requested` (QA found a problem with YOUR test).
 
 ## Specifying (`spec.requested`)
+0. **The payload may carry a whole story.** When it has a `criteria` array,
+   write ONE acceptance test for EACH criterion in this single turn — you are
+   being handed the story so you explore the codebase once instead of once per
+   behaviour. Commit them together, then publish one `spec.written` per
+   criterion (same commit sha, its own test paths). Everything below applies to
+   each criterion; without `criteria`, you have exactly one.
 1. Work in the project workspace on the current iteration branch
    (`git pull --rebase` first). The payload gives you the behaviour id, its
    acceptance criterion (`ac_text`), its kind, and the `base_sha`.

@@ -28,6 +28,13 @@ class Policy:
     per_iteration: tuple[GateSpec, ...] = ()
     wip_limit: int = 1
     max_attempts: int = 3
+    # How much work goes into ONE model transaction. `behaviour` is a
+    # transaction per behaviour; `story` batches the story's behaviours into
+    # one, so the codebase is explored once rather than once per slice. The
+    # discipline is unchanged either way: one failing test per criterion, one
+    # commit per behaviour, gates on the diff.
+    spec_granularity: str = "behaviour"
+    build_granularity: str = "behaviour"
 
     @staticmethod
     def load(path: Path) -> "Policy":
@@ -50,4 +57,6 @@ class Policy:
             per_iteration=gates("per_iteration"),
             wip_limit=int(raw.get("wip_limit", 1)),
             max_attempts=int(raw.get("max_attempts", 3)),
+            spec_granularity=str(raw.get("spec_granularity", "behaviour")),
+            build_granularity=str(raw.get("build_granularity", "behaviour")),
         )

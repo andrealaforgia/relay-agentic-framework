@@ -286,6 +286,36 @@ The cost is honest and worth stating: one extra spec-build-gate cycle per
 story. On a 14-story roadmap that is 14 more behaviours. If that proves too
 expensive, the lever is fewer, larger stories — not a story you cannot try.
 
+## D20 — The unit of transaction is not the unit of discipline
+
+Two iterations of sandtris cost $258.99. The striking part is where: the gates
+— reviewer, qa, security, the entire safety net — were $23.50, nine percent.
+The builder, which writes the product, was fifteen percent. The rest went on
+coordination and on acquiring context five times per behaviour: a specifier
+context, a builder context, two gate contexts and a judgement context, each
+paying ~34k of harness floor and then rediscovering the codebase, for a slice
+like "the piece moves right".
+
+Elephant Carpaccio assumes a slice is nearly free to take. Under a machine it
+has a fixed setup cost, so slicing thinner stops being free and starts being
+the dominant term.
+
+So granularity is now policy (`spec_granularity`, `build_granularity`,
+default `story` in the shipped policy). At story granularity the specifier is
+handed every criterion of a story and writes all the failing tests in one
+turn; the builder is handed all of them once they are red and satisfies them
+one at a time in one warm session.
+
+What does not change, and this is the point: one failing test per criterion,
+one commit and one `behaviour.built` per behaviour, gates on the diff, red
+verified by a real run, the specifier still never satisfying its own
+expectation, and the Owner still trying something at the end of every story.
+The discipline is per behaviour. Only the transaction is per story.
+
+Set both back to `behaviour` to compare — the ledger will say which is
+cheaper, and `relay costs --by-behaviour` makes it a measurement rather than
+an argument.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

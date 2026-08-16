@@ -281,8 +281,18 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
     if b is None:
         return
     if run.purpose == RunPurpose.RED_VERIFICATION and b.state == BehaviourState.RED_PENDING:
-        # An 'ac'/'integration' spec must FAIL before build; a characterization
-        # spec pins current behaviour, so it must PASS (inverted).
+        # An 'ac' spec must FAIL before build; a characterization spec pins
+        # current behaviour, so it must PASS (inverted).
+        #
+        # An integration spec composes behaviours that are already delivered,
+        # so it is allowed to be green the moment it is written — that IS the
+        # composition holding, and demanding red first makes a clean
+        # composition indistinguishable from a broken one. Green means done;
+        # red means a real integration gap, which the builder then closes.
+        if b.kind == "integration" and run.exit_code == 0:
+            b.state = BehaviourState.DONE
+            b.built_commit = b.spec_commit
+            return
         expected_fail = b.kind != "characterization"
         verified = (run.exit_code != 0) if expected_fail else (run.exit_code == 0)
         b.state = BehaviourState.RED_VERIFIED if verified else BehaviourState.RED_FAILED

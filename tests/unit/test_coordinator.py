@@ -380,3 +380,138 @@ def test_test_design_rework_leaves_the_behaviour_awaiting_the_specifier(
                     "commit_sha": SHA_SPEC, "touches": []})
     swarm.pump()
     assert swarm.behaviour("I1.S1.B1").state != BehaviourState.SPEC_DISPATCHED
+
+
+def test_code_review_findings_about_tests_go_to_the_specifier(client, publisher) -> None:
+    """Only the specifier may change tests. A code_review finding whose fix
+    lives in a test file must reach it, or the builder burns every attempt on
+    a change its own playbook forbids and the behaviour blocks for nothing.
+    """
+    policy = Policy(per_behaviour=(GateSpec(gate="code_review", role="reviewer"),))
+    swarm = MiniSwarm(client, publisher, policy=policy)
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
+                   {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
+    swarm.pump()
+
+    publisher.send("specifier", "coordinator", "spec.written",
+                   {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/t.py"],
+                    "commit_sha": SHA_SPEC, "touches": []})
+    swarm.pump()
+    red = swarm.sent("run.requested")[-1]
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": red.payload["run_id"], "kind": "acceptance_test",
+                    "commit_sha": SHA_SPEC, "exit_code": 1, "duration_s": 0.1,
+                    "output_digest": "d" * 64})
+    swarm.pump()
+    publisher.send("builder", "coordinator", "behaviour.built",
+                   {"behaviour_id": "I1.S1.B1", "story_id": "I1.S1", "iteration_id": "I1",
+                    "commit_sha": SHA_BUILD, "attempt": swarm.behaviour("I1.S1.B1").attempt})
+    swarm.pump()
+    green = swarm.sent("run.requested")[-1]
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": green.payload["run_id"], "kind": "acceptance_test",
+                    "commit_sha": SHA_BUILD, "exit_code": 0, "duration_s": 0.1,
+                    "output_digest": "e" * 64})
+    swarm.pump()
+
+    gate = swarm.sent("gate.requested")[-1]
+    publisher.send("reviewer", "coordinator", "gate.judged",
+                   {"gate_id": gate.payload["gate_id"], "verdict": "fail",
+                    "findings": [{"title": "removal breaks the landed fixture",
+                                  "detail": "conftest still polls for the deleted marker",
+                                  "severity": "blocker", "source": "reviewer",
+                                  "file": "tests/acceptance/conftest.py"}]})
+    swarm.pump()
+
+    rework = swarm.sent("rework.requested")[-1]
+    assert rework.to_role == "specifier"
+    assert swarm.behaviour("I1.S1.B1").state == BehaviourState.SPEC_DISPATCHED
+
+
+def test_mixed_code_review_findings_stay_with_the_builder(client, publisher) -> None:
+    """When production code is at fault too, the builder still owns the fix."""
+    from relay.coordinator.dispatcher import _findings_are_about_tests
+
+    assert _findings_are_about_tests([{"file": "tests/acceptance/conftest.py"}])
+    assert _findings_are_about_tests([{"file": "web/tests/test_app.py"}])
+    assert not _findings_are_about_tests([{"file": "tests/t.py"}, {"file": "web/app.js"}])
+    assert not _findings_are_about_tests([{"file": "web/app.js"}])
+    assert not _findings_are_about_tests([{"title": "no file named"}])
+    assert not _findings_are_about_tests([])
+
+
+def test_a_satisfied_claim_is_checked_against_head_not_the_spec_commit(
+    client, publisher
+) -> None:
+    """"Already satisfied" is a claim about the code as it stands. Checking it
+    at the spec commit tests a tree that predates any implementation landing
+    afterwards, so a behaviour whose code arrived with a neighbouring one can
+    never prove itself and blocks after three identical attempts.
+    """
+    head = "f" * 40
+    git = GitHooks(
+        ensure_branch=lambda _i: SHA_BASE,
+        head_sha=lambda: head,
+        has_history=lambda: False,
+        create_pr=lambda _it: "https://github.com/acme/x/pull/1",
+    )
+    swarm = MiniSwarm(client, publisher, git=git)
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
+                   {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
+    swarm.pump()
+
+    publisher.send("specifier", "coordinator", "spec.satisfied",
+                   {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/t.py"],
+                    "commit_sha": SHA_SPEC, "reason": "the criterion already holds"})
+    swarm.pump()
+
+    run = swarm.sent("run.requested")[-1]
+    assert run.payload["commit_sha"] == head, (
+        "the satisfied check must run against HEAD, not the spec commit"
+    )
+
+
+def test_an_integration_spec_that_is_already_green_is_done_not_rejected(swarm: MiniSwarm) -> None:
+    """An integration behaviour composes behaviours already delivered, so its
+    test passing the moment it is written IS the composition holding. Demanding
+    red first makes a clean composition indistinguishable from a broken one and
+    blocks the story after three attempts.
+    """
+    _drive_behaviour_to_done(swarm, "I1.S1.B1")
+    int_id = "I1.S1.INT"
+    assert swarm.behaviour(int_id).kind == "integration"
+
+    swarm.publisher.send("specifier", "coordinator", "spec.written",
+                         {"behaviour_id": int_id, "test_paths": ["tests/int.py"],
+                          "commit_sha": SHA_SPEC, "touches": []})
+    swarm.pump()
+    run = swarm.sent("run.requested")[-1]
+    swarm.publisher.send("toolgate", "coordinator", "run.completed",
+                         {"run_id": run.payload["run_id"], "kind": "acceptance_test",
+                          "commit_sha": SHA_SPEC, "exit_code": 0, "duration_s": 0.1,
+                          "output_digest": "a" * 64})
+    swarm.pump()
+
+    assert swarm.behaviour(int_id).state == BehaviourState.DONE
+    assert not [r for r in swarm.sent("rework.requested")
+                if r.payload["behaviour_id"] == int_id]
+
+
+def test_an_integration_spec_that_fails_still_goes_to_the_builder(swarm: MiniSwarm) -> None:
+    """A red integration test means a real composition gap, which must be built."""
+    _drive_behaviour_to_done(swarm, "I1.S1.B1")
+    int_id = "I1.S1.INT"
+    swarm.publisher.send("specifier", "coordinator", "spec.written",
+                         {"behaviour_id": int_id, "test_paths": ["tests/int.py"],
+                          "commit_sha": SHA_SPEC, "touches": []})
+    swarm.pump()
+    run = swarm.sent("run.requested")[-1]
+    swarm.publisher.send("toolgate", "coordinator", "run.completed",
+                         {"run_id": run.payload["run_id"], "kind": "acceptance_test",
+                          "commit_sha": SHA_SPEC, "exit_code": 1, "duration_s": 0.1,
+                          "output_digest": "b" * 64})
+    swarm.pump()
+
+    assert swarm.behaviour(int_id).state == BehaviourState.BUILD_DISPATCHED

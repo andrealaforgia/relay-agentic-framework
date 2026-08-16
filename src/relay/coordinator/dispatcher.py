@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from ulid import ULID
 
@@ -37,6 +38,24 @@ def _new_run_id() -> str:
 
 def _new_gate_id() -> str:
     return f"gate-{ULID()}"
+
+
+def _findings_are_about_tests(findings: list[dict[str, object]] | None) -> bool:
+    """True when every finding that names a file names a test file.
+
+    Only the specifier may change tests. If the fix lives there, the builder
+    cannot make it however many attempts it is given, so the loop burns its
+    budget and the behaviour ends up blocked with nothing learned. Requiring
+    ALL located findings to be test files keeps mixed findings — where
+    production code is genuinely at fault too — with the builder.
+    """
+    located = [str(f.get("file", "")) for f in (findings or []) if f.get("file")]
+    if not located:
+        return False
+    return all(
+        path.startswith("tests/") or "/tests/" in path or Path(path).name.startswith("test_")
+        for path in located
+    )
 
 
 @dataclass
@@ -280,9 +299,18 @@ class Dispatcher:
         return published
 
     def _request_run(self, state: SwarmState, b: Behaviour, purpose: RunPurpose) -> int:
-        commit = (b.spec_commit
-                  if purpose in (RunPurpose.RED_VERIFICATION, RunPurpose.SATISFIED_CHECK)
-                  else b.built_commit)
+        # Red-verification asks "does this test fail where it was introduced?",
+        # so it pins to the spec commit. A satisfied claim asks "does the
+        # criterion hold NOW?" — pinning that to the spec commit checks a tree
+        # that predates any implementation landing later, so a behaviour whose
+        # code arrived with a neighbouring one can never prove itself and
+        # blocks after three identical attempts.
+        if purpose == RunPurpose.RED_VERIFICATION:
+            commit = b.spec_commit
+        elif purpose == RunPurpose.SATISFIED_CHECK:
+            commit = self._git.head_sha() or b.spec_commit
+        else:
+            commit = b.built_commit
         run_id = _new_run_id()
         self._publisher.send(
             COORDINATOR, "toolgate", "run.requested",
@@ -321,7 +349,16 @@ class Dispatcher:
         # findings are about the TESTS, which only the specifier may touch —
         # sending them to the builder asks for a change its own playbook
         # forbids, so the loop cannot converge and burns three attempts.
-        culprit = "specifier" if b.last_fail_gate in ("test_design", "mutation") else "builder"
+        # A code_review finding can also be about the tests: removing something
+        # the existing acceptance tests observe is a code change whose fix lives
+        # in the test files. Routing that to the builder is the same dead end,
+        # so the findings themselves decide when the gate name does not.
+        culprit = (
+            "specifier"
+            if b.last_fail_gate in ("test_design", "mutation")
+            or _findings_are_about_tests(b.last_findings)
+            else "builder"
+        )
         findings = b.last_findings or [{
             "title": reason,
             "detail": f"{reason} — see the verdicts on the ledger",

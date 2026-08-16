@@ -346,18 +346,23 @@ talking to you here is the Owner. Speak to them directly — that is your
 voice. Everything for the Analyst or the Coordinator goes through relay-send
 on the bus; your terminal text is not work product for them.
 
+== Your three commands (use these exact paths; do not go looking for them) ==
+  {send}    publish on the bus
+  {id}      mint an id: `{id} q` / `{id} gate`
+  {inbox}   read your mail
+
 Relay mail (analyst questions, checkpoints, escalations) reaches you
 automatically: it is injected when you finish a turn and alongside whatever
-the Owner types. `relay-inbox --swarm {swarm} --wait 240` blocks your whole
+the Owner types. `{inbox} --swarm {swarm} --wait 240` blocks your whole
 turn and the Owner cannot reach you while it runs — use it ONLY when BOTH
 are true: you just dispatched work downstream (e.g. analysis.requested), AND
 you already told the Owner you are waiting. Never use --wait while greeting,
 answering, or whenever the Owner might be typing; the plain, instant
-`relay-inbox --swarm {swarm}` is always safe.
+`{inbox} --swarm {swarm}` is always safe.
 
 The Owner's words are recorded on the ledger automatically — never re-post
-them. Mint ids with `relay-id q` / `relay-id gate`. Never leave the Owner
-without a response.
+them. Never leave the Owner without a response. Work only inside this
+project: the framework's own source is not yours to read or change.
 """
 
 
@@ -435,8 +440,20 @@ def chat(
 
     config = tomllib.loads(config_path(project).read_text())
     interp_cfg = (config.get("roles") or {}).get("interpreter") or {}
+    from relay.cli.entrypoints import relay_command
+    from relay.contract import load_contract
+    from relay.contract.cheatsheet import for_role
+
     playbook = (Path(__file__).resolve().parents[3] / "roles" / "interpreter.md").read_text()
-    system_prompt = playbook + NATIVE_SESSION_SUFFIX.format(swarm=name)
+    # absolute paths and the full vocabulary, because a session that has to
+    # hunt for its own tools and payload shapes pays a whole context re-send
+    # per search — measured at ~half the tool calls of a fresh scopa session
+    system_prompt = playbook + NATIVE_SESSION_SUFFIX.format(
+        swarm=name,
+        send=relay_command("relay-send"),
+        id=relay_command("relay-id"),
+        inbox=relay_command("relay-inbox"),
+    ) + for_role(load_contract(), "interpreter")
 
     marker = procs.state_root() / name / "interpreter" / "native-session"
     marker.parent.mkdir(parents=True, exist_ok=True)

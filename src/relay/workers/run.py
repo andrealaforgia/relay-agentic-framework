@@ -42,7 +42,13 @@ def _load_config(project: Path) -> dict[str, object]:
 WRITING_ROLES = ("specifier", "builder")
 
 
-ROLE_DEFAULT_MODELS = {"interpreter": "opus", "sentinel": "opus"}
+# Opus where a better model changes what you live with: the analyst's reading
+# of the problem shapes every story and behaviour after it, and it is six turns
+# an engagement. The Interpreter talks and assembles roadmaps over a very long
+# context — a lot of tokens at opus rates for work sonnet does well. Gates stay
+# on sonnet deliberately: a cheap gate that waves things through does not save
+# money, it defers a bug.
+ROLE_DEFAULT_MODELS = {"analyst": "opus", "sentinel": "opus"}
 # Effort caps the agentic loop, and loop count is what makes a turn expensive:
 # every loop re-sends the whole accumulated context. The builder writes the
 # code and keeps the headroom; judging a behaviour-sized diff does not need it.
@@ -61,13 +67,30 @@ ROLE_DEFAULT_BUDGET_USD = {
 }
 
 
-def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
+def _role_config(config: dict[str, object], role: str) -> dict[str, object]:
+    roles_cfg = config.get("roles")
+    return dict((roles_cfg.get(role) or {}) if isinstance(roles_cfg, dict) else {})
+
+
+def _runner_for(
+    role: str,
+    config: dict[str, object],
+    project: Path,
+    override: dict[str, object] | None = None,
+) -> Runner:
+    """The brain for this role — or for one kind of work it does.
+
+    Tiering by role alone is coarse: a specifier writing a fresh acceptance
+    test and the same specifier re-checking a green run are not the same job.
+    `override` patches the role's settings for one trigger type.
+    """
     from relay.cli.profiles import settings_path
 
-    roles_cfg = config.get("roles")
-    role_cfg = (roles_cfg.get(role) or {}) if isinstance(roles_cfg, dict) else {}
+    role_cfg = _role_config(config, role)
+    role_cfg.update(override or {})
     runner_name = role_cfg.get("runner", "claude")
-    model = role_cfg.get("model")
+    raw_model = role_cfg.get("model")
+    model = str(raw_model) if raw_model else None
     if runner_name == "codex":
         from relay.runners.codex import CodexRunner
 
@@ -89,8 +112,22 @@ def _runner_for(role: str, config: dict[str, object], project: Path) -> Runner:
     return ClaudeRunner(
         model=model, settings_path=resolved, skip_permissions=skip,
         effort=str(effort) if effort else None,
-        max_budget_usd=float(budget) if budget else None,
+        max_budget_usd=float(str(budget)) if budget else None,
     )
+
+
+def per_trigger_runners(
+    role: str, config: dict[str, object], project: Path
+) -> dict[str, Runner]:
+    """[roles.specifier.triggers] in relay.toml — one brain per kind of work."""
+    triggers = _role_config(config, role).get("triggers")
+    if not isinstance(triggers, dict):
+        return {}
+    return {
+        str(trigger): _runner_for(role, config, project, override=dict(override))
+        for trigger, override in triggers.items()
+        if isinstance(override, dict)
+    }
 
 
 def _playbook_dir() -> Path:
@@ -133,6 +170,7 @@ def main() -> int:
             playbook_path=_playbook_dir() / f"{args.role}.md",
             workspace=project,
             state_dir=state_dir,
+            runners=per_trigger_runners(args.role, config, project),
         )
     else:
         raise SystemExit(f"unknown role: {args.role}")

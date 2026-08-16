@@ -10,6 +10,8 @@ worker.failed if the model never delivers.
 from __future__ import annotations
 
 import json
+import shutil
+import sys
 import time
 from pathlib import Path
 from typing import cast
@@ -25,7 +27,10 @@ from relay.workers import briefing
 from relay.workers.base import Worker
 
 MAX_CORRECTIONS = 2
-TURN_TIMEOUT_S = 1800
+# One acceptance-suite run is minutes, not seconds, and a builder legitimately
+# runs it several times in a turn. At 30 minutes a turn doing real work was
+# being killed mid-edit, leaving a broken working tree and no result.
+TURN_TIMEOUT_S = 3600
 VERIFY_SCAN_COUNT = 500
 # Sessions are a cost multiplier: every turn re-reads the whole history, so
 # an unbounded --resume grows quadratically (observed: one 610-turn session
@@ -33,12 +38,29 @@ VERIFY_SCAN_COUNT = 500
 # hard-capped; prompts are self-contained, so rotation never loses correctness.
 MAX_SESSION_TURNS = 20
 
+
+def _relay_send_path() -> str:
+    """Absolute path to relay-send, resolved in the parent process.
+
+    The worker's shell tool does not inherit the PATH this process was started
+    with, so a bare `relay-send` is not found. Every role then burns loops
+    hunting for it, and a turn killed at its budget ceiling mid-hunt loses its
+    result even though the work is committed.
+    """
+    found = shutil.which("relay-send")
+    if found:
+        return found
+    sibling = Path(sys.executable).parent / "relay-send"
+    return str(sibling) if sibling.exists() else "relay-send"
+
 PROTOCOL_REMINDER = """\
 == Relay protocol (mechanical rules, enforced in code) ==
 - You are the '{role}' assistant of swarm '{swarm}'.
 - Your ONLY output channel is the relay-send CLI. Plain text you print is logged but is NOT work product.
-- Reply to the message below by running:
-    relay-send --swarm {swarm} --from {role} --to <recipient> --type <type> \\
+- Reply to the message below by running (use this ABSOLUTE path: relay-send is
+  installed outside the PATH your shell tool starts with, so a bare `relay-send`
+  fails and costs you loops rediscovering that):
+    {relay_send} --swarm {swarm} --from {role} --to <recipient> --type <type> \\
       --reply-to {event_id} --payload '<json>'
 - relay-send validates the edge, type and payload; if it prints an error to stderr, fix the payload and retry within this same turn.
 - You may have partially handled this message before a restart: check the current state (git log, existing files, the error text) before redoing work.
@@ -62,9 +84,13 @@ class ChainWorker(Worker):
         workspace: Path,
         state_dir: Path,
         client: redis.Redis | None = None,
+        runners: dict[str, Runner] | None = None,
     ) -> None:
         super().__init__(swarm, role, client=client)
         self.runner = runner
+        # a cheaper brain for a lesser job: writing a fresh acceptance test and
+        # re-checking a green run are not the same work
+        self.runners = runners or {}
         self.playbook = playbook_path.read_text()
         # every type this role may publish, with a valid payload for each: the
         # alternative is a worker running `find /` to discover them
@@ -199,6 +225,7 @@ class ChainWorker(Worker):
             type=env.type,
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
             vocabulary=self._vocabulary,
+            relay_send=_relay_send_path(),
         ) + briefing.build(self.workspace, env.type, env.payload) + correction_block
         prompt = base_prompt
 
@@ -210,7 +237,7 @@ class ChainWorker(Worker):
         for _correction in range(MAX_CORRECTIONS + 1):
             session_ref = self._scoped_session(scope)
             started = time.monotonic()
-            result = self.runner.run_turn(
+            result = self.runners.get(env.type, self.runner).run_turn(
                 prompt=prompt,
                 cwd=cwd,
                 session_ref=session_ref,

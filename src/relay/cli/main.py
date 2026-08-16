@@ -120,10 +120,18 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         "# what makes a turn expensive: every loop re-sends the whole context.\n"
         "# max_budget_usd is a HARD per-turn ceiling — the turn stops and the\n"
         "# worker fails loudly rather than spending whatever it takes.\n"
+        "# opus where a better model changes what you live with (the analyst's\n"
+        "# reading of the problem shapes every story after it, and it is a handful\n"
+        "# of turns); sonnet elsewhere. Gates stay on sonnet on purpose: a cheap\n"
+        "# gate does not save money, it defers a bug.\n"
+        "# Per-kind-of-work tiering: [roles.<role>.triggers] with the trigger type\n"
+        "# as a quoted key, e.g.\n"
+        '#   [roles.specifier.triggers]\n'
+        '#   "judgement.requested" = { model = "haiku", effort = "low" }\n'
         "[roles.interpreter]\n"
-        'runner = "claude"\nmodel = "opus"\neffort = "medium"\n\n'
+        'runner = "claude"\nmodel = "sonnet"\neffort = "medium"\n\n'
         "[roles.analyst]\n"
-        'runner = "claude"\nmodel = "sonnet"\neffort = "medium"\nmax_budget_usd = 2.5\n\n'
+        'runner = "claude"\nmodel = "opus"\neffort = "high"\nmax_budget_usd = 4.0\n\n'
         "[roles.specifier]\n"
         'runner = "claude"\nmodel = "sonnet"\neffort = "medium"\nmax_budget_usd = 2.5\n\n'
         "[roles.builder]\n"

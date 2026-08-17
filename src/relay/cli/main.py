@@ -600,7 +600,7 @@ def acl_gen(
 
     name = _swarm(swarm)
     roles = ["coordinator", "toolgate", "interpreter", "analyst", "specifier",
-             "builder", "reviewer", "qa", "security", "sentinel", "owner"]
+             "builder", "reviewer", "qa", "security", "owner"]
     commands = ("+xadd +xreadgroup +xack +xautoclaim +xpending +xrange +xrevrange "
                 "+xlen +xgroup +hget +hset +get +set +del +incr +scan +ping "
                 "+script +evalsha +eval +info +config|get")

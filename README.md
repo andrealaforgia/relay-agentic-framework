@@ -46,10 +46,6 @@ toolgate → coordinator                              run evidence (deterministi
 | coordinator | Python | state machines, dispatch, gates, timers, progress — no LLM |
 | toolgate | Python | runs tests/suites/mutation tools; publishes machine-verified evidence |
 
-The sentinel (realm auditor, control plane) is implemented but **disabled by default for now**
-— it added meaningfully to token cost for a toy-scale swarm. Re-enable explicitly with
-`relay up . --roles coordinator,toolgate,analyst,specifier,builder,sentinel`.
-
 Everything rides one Redis Stream per swarm (`relay:<swarm>:ledger`) — simultaneously message bus,
 append-only ledger, and audit log. The contract (`contract/relay-contract.yaml`) is the single
 source of truth for who may say what to whom; it is enforced in code before every write and after
@@ -71,10 +67,10 @@ every read, and the generated models/docs are drift-tested in CI.
 Phases 0–3 are complete: contract kernel + bus spine; the end-to-end delivery loop
 (coordinator, toolgate, specifier/builder, live-session Interpreter in `relay chat`);
 the quality gates (reviewer, qa incl. mutation-survivor judgment, security) with PR flow
-and legacy intake; and the control plane (sentinel implemented, disabled by default — see
-above), Codex runner, per-role Redis ACLs, and `--tmux`. A full engagement runs with zero
-model calls in the test suite
-(`tests/integration/test_full_relay_no_llm.py`), including exact resume after a
-mid-engagement crash. Deferred: RelayUI (web progress radiator), HMAC message provenance.
+and legacy intake; Codex runner, per-role Redis ACLs, and `--tmux`. A full engagement runs
+with zero model calls in the test suite (`tests/integration/test_full_relay_no_llm.py`),
+including exact resume after a mid-engagement crash. The realm-auditing control plane
+(previously "sentinel") is removed pending a redesign — see `docs/DECISIONS.md`.
+Deferred: RelayUI (web progress radiator), HMAC message provenance.
 See `docs/DECISIONS.md` for design rationale and `docs/OPERATIONS.md` for running it,
 single-machine or clustered.

@@ -28,11 +28,12 @@ forgot to send its message" is detected mechanically.
 total order is the audit product; per-topic streams would require a second "ledger write", a dual
 write whose crash window forks truth. Fan-out cost is irrelevant at this volume.
 
-**Direct communication (the sentinel question) is a field, not a second system**: `plane: control`
-on the same stream. Corrections are direct-addressed, consumed like mail, but sit in the same total
-order — no off-ledger channel exists. The `correction.issued` payload schema is structurally
-incapable of carrying work content, so the control plane cannot become a covert work channel. The
-coordinator ignores control messages for work state.
+**Direct communication is a field, not a second system**: a `plane: control` message is an
+ordinary addressed event on the same stream — direct-addressed, consumed like mail, but sitting
+in the same total order, so no off-ledger channel ever exists. `pause.ordered`/`resume.ordered`
+(the `relay pause`/`relay resume` circuit breaker) use this today. The realm-auditing use of it
+(a "sentinel" role correcting assistants that stray outside their realm) was implemented and then
+removed for a redesign — see D14.
 
 ## D3 — Events are the only source of truth
 
@@ -136,16 +137,25 @@ mail waits. Every other worker streams its activity (tool calls, text) into
 its log and presence status, so `relay watch` answers "is it stuck?" at a
 glance.
 
-## D14 — Sentinel: mechanical first, model second; corrections are worker duty
+## D14 — Realm-auditing sentinel: built, then removed pending a redesign
 
-The sentinel's cheap, deterministic checks live in code (verdicts citing
-runs that never completed, gate verdicts for unknown gates, sequence gaps)
-and publish corrections without a model. Only the semantic realm audit
-("provenance, not vocabulary") spends model turns, in batches. The culprit's
-WORKER acks corrections mechanically and injects them into the next model
-turn — an ignored sentinel is structurally impossible, and repeat offenders
-escalate to the interpreter (once per role). `pause.ordered` is enforced by
-the worker loop: parked work stays in the PEL, `resume` drains it.
+A "sentinel" role read every message and applied one test: **provenance, not
+vocabulary** — did the sender choose that content, or did the problem dictate
+it? Cheap deterministic checks (verdicts citing runs that never completed,
+gate verdicts for unknown gates, sequence gaps) ran in code and published
+corrections without a model; only the semantic realm audit spent model turns,
+in batches. The culprit's worker acked corrections mechanically and injected
+them into its next turn, so ignoring the sentinel was structurally impossible,
+with repeat offenders escalating to the interpreter.
+
+**Removed 2026-08-17** (Andrea): in the token-burn investigation, the
+sentinel's continuous full-ledger reads and batched semantic-audit turns were
+a meaningful, avoidable cost on a toy-scale swarm, and the whole realm-
+auditing approach needs revisiting rather than re-tuning in place. The
+contract, code, playbook, and tests were deleted outright rather than
+disabled, so the next design starts clean. `pause.ordered`/`resume.ordered`
+(D2) remain — they back `relay pause`/`relay resume` independently of realm
+auditing.
 
 ## D15 — Cost is a ledger fact, not a log line
 
@@ -352,6 +362,7 @@ now moves every behaviour a batched request covers.
 - **Phase 1** — thin end-to-end slice: coordinator, toolgate, chain assistants (interpreter,
   analyst, specifier, builder), chat + watch, specifier verdict as the only gate.
 - **Phase 2** — reviewer/qa/security gates, rework loop, PR flow, legacy intake.
-- **Phase 3** — sentinel + control plane, CodexRunner, multi-machine hardening, `--tmux`.
+- **Phase 3** — control plane, CodexRunner, multi-machine hardening, `--tmux`. (Its
+  realm-auditing sentinel was later removed pending a redesign — see D14.)
 - **Deferred** — RelayUI (web progress radiator; cheap by design — a read-only stream consumer
   reusing the coordinator's projection), HMAC provenance, documenter role.

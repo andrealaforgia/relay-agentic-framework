@@ -17,7 +17,7 @@
 contract_version: 1
 
 roles:
-  assistants: [interpreter, analyst, specifier, builder, reviewer, qa, security, sentinel]
+  assistants: [interpreter, analyst, specifier, builder, reviewer, qa, security]
   humans: [owner]
   infra: [coordinator, toolgate, system]
 
@@ -32,11 +32,10 @@ defs:
   EventId: { type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{26}$" }   # ULID
   RunId: { type: string, pattern: "^run-[0-9A-HJKMNP-TV-Z]{26}$" }
   GateId: { type: string, pattern: "^gate-[0-9A-HJKMNP-TV-Z]{26}$" }
-  FindingId: { type: string, pattern: "^find-[0-9A-HJKMNP-TV-Z]{26}$" }
   QuestionId: { type: string, pattern: "^q-[0-9A-HJKMNP-TV-Z]{26}$" }
   Role:
     type: string
-    enum: [owner, interpreter, analyst, specifier, builder, reviewer, qa, security, sentinel, coordinator, toolgate]
+    enum: [owner, interpreter, analyst, specifier, builder, reviewer, qa, security, coordinator, toolgate]
   BehaviourKind: { type: string, enum: [ac, integration, characterization] }
   GateName: { type: string, enum: [code_review, test_design, mutation, security, checkpoint, open_pr] }
   Severity: { type: string, enum: [blocker, major, minor, nit] }
@@ -125,9 +124,6 @@ edges:
     coordinator>toolgate: [run.requested]
     toolgate>coordinator: [run.completed]
   control:
-    sentinel>*assistant: [correction.issued]
-    "*assistant>sentinel": [correction.acknowledged]
-    sentinel>interpreter: [escalation.raised]
     coordinator>*assistant: [pause.ordered, resume.ordered]
   system:
     "*>system": [worker.started, worker.stopped, worker.failed,
@@ -624,39 +620,6 @@ message_types:
         summary: { type: string, maxLength: 2000 }
 
   # ── control ─────────────────────────────────────────────────────────────────
-  # The correction schema is deliberately incapable of carrying work content:
-  # an enum remedy plus a 500-char note. The control plane cannot become a
-  # covert work channel.
-  correction.issued:
-    payload_schema:
-      type: object
-      required: [finding_id, subject_event_id, rule_id, required_remedy]
-      additionalProperties: false
-      properties:
-        finding_id: { $ref: "#/$defs/FindingId" }
-        subject_event_id: { $ref: "#/$defs/EventId" }
-        rule_id: { type: string, maxLength: 64 }
-        required_remedy: { type: string, enum: [resend_on_contract, retract, acknowledge_rule] }
-        note: { type: string, maxLength: 500 }
-
-  correction.acknowledged:
-    payload_schema:
-      type: object
-      required: [finding_id]
-      additionalProperties: false
-      properties:
-        finding_id: { $ref: "#/$defs/FindingId" }
-
-  escalation.raised:
-    payload_schema:
-      type: object
-      required: [role, finding_ids, reason]
-      additionalProperties: false
-      properties:
-        role: { $ref: "#/$defs/Role" }
-        finding_ids: { type: array, minItems: 1, items: { $ref: "#/$defs/FindingId" } }
-        reason: { type: string }
-
   pause.ordered:
     payload_schema:
       type: object

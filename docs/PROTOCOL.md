@@ -1,11 +1,11 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `03183d950b69b7362c3e82cb451cc4118833b03eae5a9f359e8e49dfee29bab4`.
+Contract version 1, hash `e92de7314e9a406fa9baad5edd742bf0f9dd69d8c501444c4804b1e7469f54f1`.
 
 ## Roles
 
-- Assistants: interpreter, analyst, specifier, builder, reviewer, qa, security, sentinel
+- Assistants: interpreter, analyst, specifier, builder, reviewer, qa, security
 - Humans: owner
 - Infra: coordinator, toolgate, system
 
@@ -33,21 +33,6 @@ Contract version 1, hash `03183d950b69b7362c3e82cb451cc4118833b03eae5a9f359e8e49
 | gate | `security>coordinator` | `gate.judged` |
 | run | `coordinator>toolgate` | `run.requested` |
 | run | `toolgate>coordinator` | `run.completed` |
-| control | `analyst>sentinel` | `correction.acknowledged` |
-| control | `builder>sentinel` | `correction.acknowledged` |
-| control | `coordinator>sentinel` | `pause.ordered`, `resume.ordered` |
-| control | `interpreter>sentinel` | `correction.acknowledged` |
-| control | `qa>sentinel` | `correction.acknowledged` |
-| control | `reviewer>sentinel` | `correction.acknowledged` |
-| control | `security>sentinel` | `correction.acknowledged` |
-| control | `sentinel>analyst` | `correction.issued` |
-| control | `sentinel>builder` | `correction.issued` |
-| control | `sentinel>interpreter` | `correction.issued`, `escalation.raised` |
-| control | `sentinel>qa` | `correction.issued` |
-| control | `sentinel>reviewer` | `correction.issued` |
-| control | `sentinel>security` | `correction.issued` |
-| control | `sentinel>specifier` | `correction.issued` |
-| control | `specifier>sentinel` | `correction.acknowledged` |
 | system | `analyst>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `builder>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `coordinator>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
@@ -56,7 +41,6 @@ Contract version 1, hash `03183d950b69b7362c3e82cb451cc4118833b03eae5a9f359e8e49
 | system | `qa>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `reviewer>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `security>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
-| system | `sentinel>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `specifier>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `toolgate>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 
@@ -74,12 +58,9 @@ One JSON Schema per type lives in `contract/schema/`.
 | `build.requested` | work | `behaviour_id`, `spec_commit_sha`, `test_paths` |
 | `checkpoint.reached` | chat | `kind`, `subject_id`, `gate_id`, `summary` |
 | `contract.upgraded` | system | `old_hash`, `new_hash` |
-| `correction.acknowledged` | control | `finding_id` |
-| `correction.issued` | control | `finding_id`, `subject_event_id`, `rule_id`, `required_remedy` |
 | `decision.made` | chat | `gate_id`, `decision` |
 | `decision.requested` | plan | `gate_id`, `subject_id`, `reason` |
 | `error.raised` | work | `kind`, `detail` |
-| `escalation.raised` | control | `role`, `finding_ids`, `reason` |
 | `feedback.given` | chat | `text` |
 | `gap.detected` | system | `expected_seq`, `observed_seq` |
 | `gate.judged` | gate | `gate_id`, `verdict`, `findings` |

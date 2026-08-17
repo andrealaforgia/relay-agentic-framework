@@ -9,9 +9,9 @@ drift reaches the Owner.
 Detection is deliberately narrow. A banned word only counts when it is used
 as a COUNTABLE UNIT OF WORK ("the first round", "three phases", "phase 2"),
 because the same words are ordinary domain vocabulary — a card game has
-rounds, a washing machine has phases, a runner has milestones. The sentinel's
-own test applies: did the sender choose the word, or did the problem dictate
-it? Counting is what betrays an invented unit of work.
+rounds, a washing machine has phases, a runner has milestones. The test is
+provenance, not vocabulary: did the sender choose the word, or did the
+problem dictate it? Counting is what betrays an invented unit of work.
 """
 
 from __future__ import annotations

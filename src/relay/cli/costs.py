@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-_ROLE_RE = re.compile(r"You are the '(\w+)' assistant|# (Interpreter|Analyst|Specifier|Builder|Reviewer|QA|Security|Sentinel)\\n")
+_ROLE_RE = re.compile(r"You are the '(\w+)' assistant|# (Interpreter|Analyst|Specifier|Builder|Reviewer|QA|Security)\\n")
 USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens",
               "cache_read_input_tokens", "output_tokens")
 

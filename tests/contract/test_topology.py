@@ -31,12 +31,10 @@ def test_wrong_type_on_edge_is_vocabulary_violation() -> None:
 
 
 def test_wildcard_edges_expanded() -> None:
-    # sentinel may correct every assistant, and every assistant may ack.
+    # the coordinator may pause/resume every assistant
     for assistant in contract.assistants:
-        if assistant == "sentinel":
-            continue
-        validator.validate_edge("sentinel", assistant, "correction.issued")
-        validator.validate_edge(assistant, "sentinel", "correction.acknowledged")
+        validator.validate_edge("coordinator", assistant, "pause.ordered")
+        validator.validate_edge("coordinator", assistant, "resume.ordered")
     # every role may report to system
     validator.validate_edge("toolgate", "system", "worker.started")
     validator.validate_edge("owner", "system", "worker.stopped")
@@ -67,19 +65,6 @@ def test_unknown_type_is_payload_violation() -> None:
         validator.validate_payload("work.done", {})
     with pytest.raises(PayloadViolation):
         validator.plane_of("work.done")
-
-
-def test_correction_note_cannot_carry_work_content() -> None:
-    # The control plane is structurally incapable of smuggling work: >500 chars rejected.
-    payload = {
-        "finding_id": "find-01J5AB3CDEF4GH5JK6MN7PQ8RS",
-        "subject_event_id": "01J5AB3CDEF4GH5JK6MN7PQ8RS",
-        "rule_id": "realm.builder",
-        "required_remedy": "resend_on_contract",
-        "note": "x" * 501,
-    }
-    with pytest.raises(PayloadViolation):
-        validator.validate_payload("correction.issued", payload)
 
 
 def test_contract_hash_shape_and_stability() -> None:

@@ -47,8 +47,6 @@ class Worker:
         self._stopping = False
         self._paused = False
         self._drain_pel_next_step = False
-        # corrections received from the sentinel, surfaced to the next model turn
-        self.pending_corrections: list[Envelope] = []
 
     # ── subclass surface ─────────────────────────────────────────────────────
 
@@ -191,20 +189,8 @@ class Worker:
 
 
     def _handle_control(self, env: Envelope) -> None:
-        """Control plane: deterministic worker duties, never the model's.
-
-        The ack is published by the WORKER on receipt — whether the model's
-        behaviour then changes is judged by the sentinel from later traffic.
-        """
-        if env.type == "correction.issued":
-            print(f"[{_now()}] correction from sentinel: {env.payload.get('rule_id')}", flush=True)
-            self.pending_corrections.append(env)
-            self.publisher.send(
-                self.role, "sentinel", "correction.acknowledged",
-                {"finding_id": env.payload["finding_id"]},
-                in_reply_to=env.event_id,
-            )
-        elif env.type == "pause.ordered":
+        """Control plane: deterministic worker duties, never the model's."""
+        if env.type == "pause.ordered":
             print(f"[{_now()}] PAUSED by coordinator: {env.payload.get('reason', '')}", flush=True)
             self._paused = True
             self.heartbeat(status="paused")
@@ -256,10 +242,6 @@ class Worker:
             )
         except (ContractError, redis.RedisError) as e:
             print(f"[{_now()}] !! usage not recorded ({e})", flush=True)
-
-    def drain_corrections(self) -> list[Envelope]:
-        corrections, self.pending_corrections = self.pending_corrections, []
-        return corrections
 
 
 def _now() -> str:

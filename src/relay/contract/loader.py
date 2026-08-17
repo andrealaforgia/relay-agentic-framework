@@ -1,7 +1,7 @@
 """Load and index contract/relay-contract.yaml — the single source of truth.
 
 The loaded `Contract` is immutable for the life of the process. Wildcard edges
-("sentinel>*assistant", "*>system") are expanded exactly once, here, so every
+("coordinator>*assistant", "*>system") are expanded exactly once, here, so every
 other module works with concrete edges only.
 """
 

@@ -46,10 +46,6 @@
       ],
       "type": "object"
     },
-    "FindingId": {
-      "pattern": "^find-[0-9A-HJKMNP-TV-Z]{26}$",
-      "type": "string"
-    },
     "GateId": {
       "pattern": "^gate-[0-9A-HJKMNP-TV-Z]{26}$",
       "type": "string"
@@ -134,7 +130,6 @@
         "reviewer",
         "qa",
         "security",
-        "sentinel",
         "coordinator",
         "toolgate"
       ],

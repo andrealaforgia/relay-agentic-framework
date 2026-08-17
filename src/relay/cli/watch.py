@@ -34,7 +34,7 @@ ROLE_COLORS = {
     "owner": "green", "interpreter": "cyan", "analyst": "blue",
     "specifier": "magenta", "builder": "yellow", "coordinator": "white",
     "toolgate": "bright_black", "reviewer": "red", "qa": "bright_magenta",
-    "security": "bright_red", "sentinel": "bright_cyan",
+    "security": "bright_red",
 }
 STATE_ICONS = {
     BehaviourState.DONE: ("✓", "green"),

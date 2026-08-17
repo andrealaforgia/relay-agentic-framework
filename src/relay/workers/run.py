@@ -48,7 +48,7 @@ WRITING_ROLES = ("specifier", "builder")
 # context — a lot of tokens at opus rates for work sonnet does well. Gates stay
 # on sonnet deliberately: a cheap gate that waves things through does not save
 # money, it defers a bug.
-ROLE_DEFAULT_MODELS = {"analyst": "opus", "sentinel": "opus"}
+ROLE_DEFAULT_MODELS = {"analyst": "opus"}
 # Effort caps the agentic loop, and loop count is what makes a turn expensive:
 # every loop re-sends the whole accumulated context. The builder writes the
 # code and keeps the headroom; judging a behaviour-sized diff does not need it.
@@ -56,14 +56,13 @@ ROLE_DEFAULT_EFFORT = {
     "builder": "high",
     "specifier": "medium", "analyst": "medium", "interpreter": "medium",
     "reviewer": "medium", "qa": "medium", "security": "medium",
-    "sentinel": "low",
 }
 # A hard per-turn ceiling, generous enough that only a runaway hits it — the
 # observed spread on a toy project was $0.20-$2.40 a turn. Fail closed: the
 # turn stops, the worker fails loudly, and a human decides.
 ROLE_DEFAULT_BUDGET_USD = {
     "builder": 3.0, "specifier": 2.5, "analyst": 2.5,
-    "reviewer": 1.5, "qa": 1.5, "security": 1.5, "sentinel": 1.0,
+    "reviewer": 1.5, "qa": 1.5, "security": 1.5,
 }
 
 
@@ -153,16 +152,6 @@ def main() -> int:
         commands_raw = config.get("commands")
         commands = commands_raw if isinstance(commands_raw, dict) else {}
         worker = Toolgate(args.swarm, project, commands=commands)
-    elif args.role == "sentinel":
-        from relay.workers.sentinel import SentinelWorker
-
-        worker = SentinelWorker(
-            args.swarm,
-            runner=_runner_for(args.role, config, project),
-            playbook_path=_playbook_dir() / "sentinel.md",
-            workspace=project,
-            state_dir=state_dir,
-        )
     elif args.role in CHAIN_ROLES:
         worker = ChainWorker(
             args.swarm, args.role,

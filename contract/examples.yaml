@@ -243,21 +243,6 @@ run.completed:
   artifact_path: ".relay/runs/run-01J5AB3CDEF4GH5JK6MN7PQ8RS.log"
   summary: "1 failed (expected: red verification before build)."
 
-correction.issued:
-  finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
-  subject_event_id: "01J5AB3CDEF4GH5JK6MN7PQ8RS"
-  rule_id: "realm.builder.no-domain-reinterpretation"
-  required_remedy: "resend_on_contract"
-  note: "behaviour.built summary re-interprets the requirement instead of stating what now works."
-
-correction.acknowledged:
-  finding_id: "find-01J5AB3CDEF4GH5JK6MN7PQ8RS"
-
-escalation.raised:
-  role: "builder"
-  finding_ids: ["find-01J5AB3CDEF4GH5JK6MN7PQ8RS"]
-  reason: "Three uncorrected realm violations on behaviour.built summaries."
-
 pause.ordered:
   role: "builder"
   reason: "Escalation gate-01J5AB3CDEF4GH5JK6MN7PQ8RS pending owner decision."

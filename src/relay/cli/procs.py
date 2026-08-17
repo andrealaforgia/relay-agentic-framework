@@ -12,8 +12,6 @@ import time
 from pathlib import Path
 
 # the interpreter is NOT here: it lives inside `relay chat` as a live session.
-# the sentinel is opt-in for now (Andrea, 2026-08-13): start it explicitly with
-#   relay up . --roles coordinator,toolgate,analyst,specifier,builder,sentinel
 PHASE1_ROLES = ("coordinator", "toolgate", "analyst", "specifier", "builder")
 
 

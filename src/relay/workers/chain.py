@@ -203,18 +203,6 @@ class ChainWorker(Worker):
                 gitops.remove_worktree(self.workspace, worktree)
 
     def _run_turn_loop(self, env: Envelope, cwd: Path) -> str | None:
-        corrections = self.drain_corrections()
-        correction_block = ""
-        if corrections:
-            notes = "\n".join(
-                f"- [{c.payload.get('rule_id')}] {c.payload.get('required_remedy')}: "
-                f"{c.payload.get('note', '')} (re: event {c.payload.get('subject_event_id')})"
-                for c in corrections
-            )
-            correction_block = (
-                "\n\n== Sentinel corrections (already acked; apply them in this turn) ==\n"
-                + notes
-            )
         # static first, volatile last: the playbook is the same on every turn,
         # so anything that changes must sit AFTER it or the cached prefix dies
         base_prompt = self.playbook + "\n\n" + PROTOCOL_REMINDER.format(
@@ -226,7 +214,7 @@ class ChainWorker(Worker):
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
             vocabulary=self._vocabulary,
             relay_send=_relay_send_path(),
-        ) + briefing.build(self.workspace, env.type, env.payload) + correction_block
+        ) + briefing.build(self.workspace, env.type, env.payload)
         prompt = base_prompt
 
         def on_event(activity: str) -> None:

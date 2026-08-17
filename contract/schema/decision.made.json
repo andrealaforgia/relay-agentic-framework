@@ -233,12 +233,17 @@
     "decision": {
       "enum": [
         "approve",
-        "reject"
+        "reject",
+        "retry",
+        "drop"
       ],
       "type": "string"
     },
     "gate_id": {
       "$ref": "#/$defs/GateId"
+    },
+    "subject_id": {
+      "type": "string"
     }
   },
   "required": [

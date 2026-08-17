@@ -214,6 +214,19 @@ class Dispatcher:
         return 1
 
     def _advance_one(self, state: SwarmState, b: Behaviour) -> int:
+        if b.spec_conflict is not None:
+            # an existing acceptance test contradicts this behaviour: only the
+            # specifier may retire or amend it, so this is rework, not a
+            # question for the Owner
+            detail, b.spec_conflict = b.spec_conflict, None
+            b.last_findings = [{
+                "severity": "major",
+                "title": "an existing acceptance test contradicts this behaviour",
+                "detail": detail,
+                "source": "builder",
+            }]
+            b.last_fail_gate = "test_design"
+            return self._rework_or_escalate(b, "existing acceptance tests contradict this behaviour")
         if b.error_reported is not None:
             # an assistant said it is stuck: that must never vanish (fail loud)
             reason = b.error_reported

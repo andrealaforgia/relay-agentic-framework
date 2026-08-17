@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `64e4a5679fea79496a432764eaa354102e82ca5b7556e3b45e4d2c34c31e44f0`.
+Contract version 1, hash `03183d950b69b7362c3e82cb451cc4118833b03eae5a9f359e8e49dfee29bab4`.
 
 ## Roles
 
@@ -17,7 +17,7 @@ Contract version 1, hash `64e4a5679fea79496a432764eaa354102e82ca5b7556e3b45e4d2c
 | chat | `interpreter>owner` | `checkpoint.reached`, `pr.announced`, `questions.asked`, `roadmap.proposed`, `update.shared` |
 | chat | `owner>interpreter` | `answers.given`, `decision.made`, `feedback.given`, `instruction.given`, `problem.stated` |
 | plan | `coordinator>interpreter` | `decision.requested`, `iteration.finished`, `pause.ordered`, `pr.opened`, `resume.ordered`, `roadmap.rejected`, `stall.detected`, `story.completed` |
-| plan | `interpreter>coordinator` | `iteration.aborted`, `iteration.started`, `pr.approved`, `roadmap.committed` |
+| plan | `interpreter>coordinator` | `decision.made`, `iteration.aborted`, `iteration.started`, `pr.approved`, `roadmap.committed` |
 | work | `analyst>interpreter` | `questions.raised`, `recon.completed`, `stories.written` |
 | work | `builder>coordinator` | `behaviour.built`, `error.raised` |
 | work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered` |

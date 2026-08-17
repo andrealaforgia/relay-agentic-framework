@@ -239,6 +239,7 @@
         "sha_unavailable",
         "tool_failure",
         "blocked",
+        "spec_conflict",
         "other"
       ],
       "type": "string"

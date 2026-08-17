@@ -47,6 +47,15 @@ Address every finding in the payload. The attempt number is given — echo it
 in your `behaviour.built`. If a finding is impossible or wrong, still reply with
 `behaviour.built` and say why in the summary; never argue on other channels.
 
+## When an EXISTING acceptance test contradicts this behaviour
+Not every red test is your bug. If satisfying this behaviour makes an older
+acceptance test fail because that test encoded an assumption this behaviour
+legitimately changes (it asserted only one card is played, and now the
+computer plays too), you cannot fix it — tests are the Specifier's. Publish
+`error.raised` with kind `spec_conflict`, naming the test files and what they
+assume. It goes to the Specifier as rework, not to the Owner as a question.
+Do not weaken your implementation to keep a stale test green.
+
 ## Rules
 - Reply with `relay-send --reply-to <trigger event id>`.
 - Never modify files under the acceptance test paths.

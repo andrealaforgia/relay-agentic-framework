@@ -103,7 +103,8 @@ edges:
     interpreter>owner: [questions.asked, roadmap.proposed, checkpoint.reached, pr.announced, update.shared]
     coordinator>owner: [progress.reported]     # machine-generated status; conversation stays interpreter-only
   plan:
-    interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved]
+    interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved,
+                              decision.made]
     coordinator>interpreter: [story.completed, iteration.finished, stall.detected, roadmap.rejected, decision.requested, pr.opened]
   work:
     interpreter>analyst: [analysis.requested, answers.relayed]
@@ -183,7 +184,11 @@ message_types:
       additionalProperties: false
       properties:
         gate_id: { $ref: "#/$defs/GateId" }
-        decision: { type: string, enum: [approve, reject] }
+        # approve/reject answer a gate; retry/drop answer an escalation about a
+        # blocked behaviour — without them BLOCKED is a one-way door and an
+        # escalation has no return path.
+        decision: { type: string, enum: [approve, reject, retry, drop] }
+        subject_id: { type: string }
         comment: { type: string }
 
   feedback.given:
@@ -555,7 +560,11 @@ message_types:
       additionalProperties: false
       properties:
         behaviour_id: { $ref: "#/$defs/BehaviourId" }
-        kind: { type: string, enum: [push_conflict, sha_unavailable, tool_failure, blocked, other] }
+        # `spec_conflict`: an EXISTING acceptance test now contradicts this
+        # behaviour. Only the specifier may change tests, so this routes there
+        # as rework rather than escalating a question the Owner cannot answer.
+        kind: { type: string, enum: [push_conflict, sha_unavailable, tool_failure, blocked,
+                                     spec_conflict, other] }
         detail: { type: string }
 
   # ── gate ────────────────────────────────────────────────────────────────────

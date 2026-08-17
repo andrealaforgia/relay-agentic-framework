@@ -71,6 +71,7 @@ class Behaviour:
     attempt: int = 1
     spec_attempts: int = 0               # spec.requested dispatches (respec-loop cap)
     error_reported: str | None = None    # unresolved error.raised detail
+    spec_conflict: str | None = None     # an existing test contradicts this
     test_paths: list[str] = field(default_factory=list)
     touches: list[str] = field(default_factory=list)
     base_sha: str | None = None

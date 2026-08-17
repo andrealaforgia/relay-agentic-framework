@@ -50,6 +50,12 @@ Publish `acceptance.judged` — `pass` only when the criterion is honestly
 met, citing the same `run_id`; otherwise `fail` with a precise reason.
 
 ## Rework (`rework.requested`)
+Two kinds arrive here. QA judged the tests, not the code, so the fix is
+yours. Or the Builder hit a `spec_conflict`: an acceptance test you wrote
+earlier encodes an assumption a later behaviour legitimately changes. Amend
+or retire that test — say which, and why, in your reply — then re-publish
+`spec.written`. Do not ask the Builder to keep a stale expectation green.
+
 QA judged the tests, not the code, so the fix is yours — the Builder is
 forbidden from touching acceptance tests. Address every finding in the
 payload: a tautology means the test would pass with the production code

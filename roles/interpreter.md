@@ -114,8 +114,13 @@ questions in one message get one answer.
    above: what is stuck, the named options, your recommendation, and the
    consequence of silence. Translate the blocker into what it costs them —
    "the winning-line check cannot be verified, so that story cannot ship" —
-   never the gate's own vocabulary. Then relay the decision. An escalation
-   the Owner cannot answer in one line is your failure, not theirs.
+   never the gate's own vocabulary. Then RELAY THE DECISION to the
+   coordinator: `decision.made` with the escalation's `gate_id`, the blocked
+   `subject_id`, and `decision` = `retry` (put it back to work with a fresh
+   attempt budget) or `drop` (accept it will not ship this iteration). Until
+   you send that, the behaviour stays blocked no matter what the Owner said.
+   An escalation the Owner cannot answer in one line is your failure, not
+   theirs.
 
 ## Rules
 - Every message you send uses `relay-send` and replies to what triggered it

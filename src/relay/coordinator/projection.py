@@ -196,9 +196,29 @@ def _behaviour(state: SwarmState, env: Envelope) -> Behaviour | None:
     return state.behaviours.get(str(bid)) if bid else None
 
 
+def _batched(state: SwarmState, env: Envelope, field: str) -> list[Behaviour]:
+    """Every behaviour one dispatch covers.
+
+    At story granularity a single request carries the whole story, and state
+    is a fold over the ledger (D3) — so the fold must move ALL of them, not
+    just the one named at the top of the payload. Setting the rest in the
+    dispatcher's memory alone made a restart re-dispatch finished work.
+    """
+    items = env.payload.get(field)
+    if not isinstance(items, list):
+        anchor = _behaviour(state, env)
+        return [anchor] if anchor else []
+    out = []
+    for item in items:
+        if isinstance(item, dict):
+            b = state.behaviours.get(str(item.get("behaviour_id")))
+            if b is not None:
+                out.append(b)
+    return out
+
+
 def _spec_requested(state: SwarmState, env: Envelope) -> None:
-    b = _behaviour(state, env)
-    if b:
+    for b in _batched(state, env, "criteria"):
         b.state = BehaviourState.SPEC_DISPATCHED
         b.base_sha = str(env.payload["base_sha"])
         b.spec_attempts += 1
@@ -227,10 +247,14 @@ def _error_raised(state: SwarmState, env: Envelope) -> None:
     """An assistant reported it is stuck: this must never vanish."""
     detail = str(env.payload.get("detail", env.payload.get("kind", "error")))
     b = _behaviour(state, env)
-    if b is not None:
-        b.error_reported = detail
-    else:
+    if b is None:
         state.unescalated_errors[env.event_id] = f"{env.from_role}: {detail}"
+    elif str(env.payload.get("kind")) == "spec_conflict":
+        # not a stuck assistant: an existing acceptance test contradicts this
+        # behaviour, which only the specifier may resolve
+        b.spec_conflict = detail
+    else:
+        b.error_reported = detail
 
 
 def _decision_requested(state: SwarmState, env: Envelope) -> None:
@@ -319,9 +343,35 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
 
 
 def _build_requested(state: SwarmState, env: Envelope) -> None:
-    b = _behaviour(state, env)
-    if b and b.state == BehaviourState.RED_VERIFIED:
-        b.state = BehaviourState.BUILD_DISPATCHED
+    for b in _batched(state, env, "behaviours"):
+        if b.state == BehaviourState.RED_VERIFIED:
+            b.state = BehaviourState.BUILD_DISPATCHED
+
+
+def _decision_made(state: SwarmState, env: Envelope) -> None:
+    """The Owner's answer to an escalation, which is the way OUT of BLOCKED.
+
+    Without this the coordinator escalates, the Owner answers, and nothing
+    consumes it: a blocked behaviour stays blocked for ever. `retry` puts the
+    behaviour back at the start of its cycle with a fresh attempt budget;
+    `drop` accepts that it will not be delivered in this iteration.
+    """
+    if env.to_role != "coordinator":
+        return
+    subject = str(env.payload.get("subject_id") or env.behaviour_id or "")
+    b = state.behaviours.get(subject)
+    if b is None or b.state != BehaviourState.BLOCKED:
+        return
+    decision = str(env.payload.get("decision"))
+    if decision == "retry":
+        b.state = BehaviourState.PLANNED
+        b.attempt = 1
+        b.spec_attempts = 0
+        b.pending_gates.clear()
+        b.last_fail_reason = None
+    elif decision == "drop":
+        b.state = BehaviourState.DONE       # not delivered, but no longer in the way
+        b.last_fail_reason = "dropped by the Owner"
 
 
 def _rework_requested(state: SwarmState, env: Envelope) -> None:
@@ -456,6 +506,7 @@ _HANDLERS = {
     "spec.written": _spec_ready,
     "spec.satisfied": _spec_satisfied,
     "error.raised": _error_raised,
+    "decision.made": _decision_made,
     "build.requested": _build_requested,
     "rework.requested": _rework_requested,
     "behaviour.built": _built,

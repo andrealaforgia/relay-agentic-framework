@@ -117,3 +117,38 @@ def test_each_behaviour_is_still_delivered_and_gated_on_its_own(client, publishe
 def test_granularity_is_policy_not_code(field: str) -> None:
     assert getattr(Policy(), field) == "behaviour"       # unchanged unless asked
     assert getattr(STORY_MODE, field) == "story"
+
+
+def test_a_batched_dispatch_survives_a_restart(client, publisher) -> None:
+    """State is a fold over the ledger (D3). A story-wide request must move
+    every behaviour it covers, or a cold start re-dispatches finished work —
+    which is exactly what a replay of the scopa ledger did."""
+    from relay.coordinator.model import SwarmState
+    from relay.coordinator.projection import apply
+    from relay.ledger.reader import read_all
+
+    swarm = _start(client, publisher)
+    assert len(swarm.sent("spec.requested")) == 1
+
+    fresh = SwarmState()
+    for _sid, env in read_all(client, "testswarm"):
+        apply(fresh, env)
+    for bid in ("I1.S1.B1", "I1.S1.B2", "I1.S1.INT"):
+        assert fresh.behaviours[bid].state == BehaviourState.SPEC_DISPATCHED, bid
+
+
+def test_a_batched_build_survives_a_restart(client, publisher) -> None:
+    from relay.coordinator.model import SwarmState
+    from relay.coordinator.projection import apply
+    from relay.ledger.reader import read_all
+
+    swarm = _start(client, publisher)
+    for bid in ("I1.S1.B1", "I1.S1.B2", "I1.S1.INT"):
+        _go_red(swarm, bid)
+    assert len(swarm.sent("build.requested")) == 1
+
+    fresh = SwarmState()
+    for _sid, env in read_all(client, "testswarm"):
+        apply(fresh, env)
+    for bid in ("I1.S1.B1", "I1.S1.B2", "I1.S1.INT"):
+        assert fresh.behaviours[bid].state == BehaviourState.BUILD_DISPATCHED, bid

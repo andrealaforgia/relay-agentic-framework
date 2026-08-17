@@ -316,6 +316,36 @@ Set both back to `behaviour` to compare — the ledger will say which is
 cheaper, and `relay costs --by-behaviour` makes it a measurement rather than
 an argument.
 
+## D21 — An escalation must have a way back
+
+scopa ran overnight and stopped at 23:55 with two behaviours blocked, both
+escalated to the Owner, and nine hours of silence. The escalation was correct
+— fail closed, ask the human, spend nothing while waiting. What was missing:
+
+    $ grep -rn "decision.made" src/relay/coordinator/
+    $   (nothing)
+
+`BLOCKED` was a one-way door. The coordinator escalated, the Owner answered in
+chat, and nothing consumed the answer. Awake or asleep made no difference.
+`decision.made` now travels interpreter>coordinator and carries `retry` (back
+to work with a fresh attempt budget) or `drop` (it will not ship this
+iteration), against a `subject_id`.
+
+The second block was not a decision at all. The builder implemented "computer
+plays automatically" and reported that two earlier acceptance tests now failed,
+because they assert the table grows by exactly one card when the Owner plays.
+An older expectation invalidated by a later behaviour is ordinary in ATDD — you
+amend the test. Here the builder may not touch tests and the specifier was
+never asked, so it escalated a question the Owner could not usefully answer.
+`error.raised` gains kind `spec_conflict`, which routes to the specifier as
+rework with the detail as a finding.
+
+And a bug of my own, found while diagnosing: story-granularity dispatch set the
+batch's states in the dispatcher's memory but the projection only moved the
+behaviour named in the payload. The live run was fine; any restart re-dispatched
+finished work. State is a fold over the ledger (D3) or it is nothing — the fold
+now moves every behaviour a batched request covers.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

@@ -1,83 +1,208 @@
 # Relay Agentic Framework
 
-A multi-assistant delivery framework where a human's problem becomes shippable increments through
-acceptance-test-driven development — coordinated by deterministic code, executed by AI assistants,
-and recorded on an auditable event ledger.
+A multi-assistant delivery framework where a human's problem becomes shippable increments
+through acceptance-test-driven development — coordinated by deterministic code, executed by
+AI assistants, and recorded on an auditable event ledger.
 
-**Core creed: models propose, deterministic code disposes.** LLM assistants analyse, plan, specify,
-code, and review. Everything else — sequencing, gate accounting, state machines, timers, progress,
-resume — is plain code folding over an append-only event stream. No rule ever depends on a model
-remembering it.
-
-## Quickstart
-
-```bash
-uv tool install git+https://github.com/andrealaforgia/relay-agentic-framework
-relay init --project ~/code/myproject     # writes relay.toml + per-role permission profiles
-relay up   --project ~/code/myproject --swarm acme
-relay chat --swarm acme                   # terminal 1: talk to the Interpreter
-relay watch --swarm acme                  # terminal 2: live swarm feed + progress
-```
-
-Taking over an **existing codebase**? Start with `relay learn`: it scans the code, then interviews
-you (or its current developers) hypothesis by hypothesis, writing the confirmed understanding into
-committed knowledge files (`docs/relay/knowledge/`) that every assistant is briefed from. And with
-plan mode on (`plan_required`, the default), no iteration builds anything until you have reviewed
-and approved its technical change plan in `relay plan` — the plan is then injected, binding, into
-every specifier, builder, and reviewer turn.
-
-State a problem in `relay chat`. The swarm analyses it (asking you questions), proposes a roadmap of
-shippable iterations, and — once you approve — delivers it behaviour by behaviour on an iteration
-branch, each behaviour driven by an independently-authored failing acceptance test, each gated by
-code review and test-quality review, each visible live in `relay watch`. At the end of every
-iteration you get a checkpoint: feedback, continue, re-plan, or open a PR.
+**Core creed: models propose, deterministic code disposes.** LLM assistants analyse, plan,
+specify, code, and review. Everything else — sequencing, gate accounting, state machines,
+progress, resume — is plain code folding over an append-only event stream. No rule ever
+depends on a model remembering it.
 
 ## The shape
 
-```
-owner ⇄ chat CLI ⇄ interpreter ⇄ analyst           conversational plane (domain language only)
-             interpreter ⇄ coordinator              plan plane
-coordinator → specifier → builder → coordinator     work plane
-coordinator → reviewer / qa / security              gate plane
-toolgate → coordinator                              run evidence (deterministic test/mutation runs)
-```
+Everything rides one Redis Stream per swarm — simultaneously message bus, append-only
+ledger, and audit trail. Who may say what to whom is defined in one contract file and
+enforced in code before every write and after every read.
 
 | Role | Kind | Job |
 |---|---|---|
-| owner | human | states the problem, answers questions, approves roadmap/checkpoints/PRs |
-| interpreter | LLM (opus) | sole owner interface; roadmap of Iteration → Story → AC-behaviours + INT |
-| analyst | LLM | problem analysis (Q&A loop) → prioritized INVEST user stories |
-| specifier | LLM | authors the failing acceptance test per behaviour; judges completion |
-| builder | LLM | ATDD red-green-refactor; small continuous commits to the iteration branch |
-| reviewer / qa / security | LLM | blocking quality gates (per behaviour / story / iteration) |
-| coordinator | Python | state machines, dispatch, gates, timers, progress — no LLM |
-| toolgate | Python | runs tests/suites/mutation tools; publishes machine-verified evidence |
+| **owner** | you | states the problem, answers questions, approves roadmaps, plans, and PRs |
+| **interpreter** | Claude session (`relay chat`) | your sole conversation partner; domain language only |
+| **curator** | Claude session (`relay learn`) | interviews you + scans the code into curated knowledge |
+| **planner** | Claude session (`relay plan`) | agrees the technical change plan with you, per iteration |
+| **analyst** | worker | problem analysis in a question loop, then prioritized user stories |
+| **specifier** | worker | one failing acceptance test per behaviour, before any code; judges completion |
+| **builder** | worker | makes the tests pass — red, green, refactor, small continuous commits |
+| **reviewer / qa / security** | workers | blocking quality gates (per behaviour / story / iteration) |
+| **coordinator / toolgate** | Python, no model | state machines, dispatch, gates; deterministic test & mutation runs |
 
-Everything rides one Redis Stream per swarm (`relay:<swarm>:ledger`) — simultaneously message bus,
-append-only ledger, and audit log. The contract (`contract/relay-contract.yaml`) is the single
-source of truth for who may say what to whom; it is enforced in code before every write and after
-every read, and the generated models/docs are drift-tested in CI.
+## Install
 
-## Hard guarantees
+```bash
+uv tool install git+https://github.com/andrealaforgia/relay-agentic-framework
+```
 
-- **Exact resume**: all state is a fold over the ledger; `relay down && relay up` (or `kill -9`,
-  or a dead machine) resumes precisely where work stopped.
-- **Existing codebases**: a reconnaissance iteration maps the codebase first; legacy areas are
-  characterization-tested before they may be changed — enforced by the coordinator, not by advice.
-- **Independence**: the builder never grades its own homework; red is verified by an actual failing
-  run; verdicts must cite real, machine-executed run evidence.
-- **Fail closed**: no timeout ever auto-approves; human gates never expire; nothing is dropped
-  silently (dead-letter queue + escalation).
+Requirements: `claude` (Claude Code CLI, authenticated), `git`, `redis-server`
+(`brew install redis` — `relay up` starts and configures it), `gh` if you want PRs opened
+for you. Assistants run on Claude by default; any worker role can run on OpenAI Codex
+instead (`runner = "codex"` in `relay.toml`).
 
-## Status
+## The two workflows
 
-Phases 0–3 are complete: contract kernel + bus spine; the end-to-end delivery loop
-(coordinator, toolgate, specifier/builder, live-session Interpreter in `relay chat`);
-the quality gates (reviewer, qa incl. mutation-survivor judgment, security) with PR flow
-and legacy intake; Codex runner, per-role Redis ACLs, and `--tmux`. A full engagement runs
-with zero model calls in the test suite (`tests/integration/test_full_relay_no_llm.py`),
-including exact resume after a mid-engagement crash. The realm-auditing control plane
-(previously "sentinel") is removed pending a redesign — see `docs/DECISIONS.md`.
-Deferred: RelayUI (web progress radiator), HMAC message provenance.
-See `docs/DECISIONS.md` for design rationale and `docs/OPERATIONS.md` for running it,
-single-machine or clustered.
+### Greenfield: from a problem to shipped increments
+
+```bash
+relay up ~/code/myproject     # first run auto-initializes: git repo, relay.toml,
+                              # gate policy, permission profiles, redis, workers
+cd ~/code/myproject
+relay chat                    # terminal 1 — talk to the Interpreter
+relay watch                   # terminal 2 — the live board
+```
+
+1. **State your problem** in plain language in `relay chat`.
+2. **Answer the analyst's questions.** They arrive in the conversation; each round is
+   generated from the previous answers, until no material ambiguity remains.
+3. **Approve the roadmap** — ordered iterations, each a shippable vertical slice, each
+   holding stories whose acceptance criteria become individually-tested behaviours.
+4. **Approve each iteration's change plan** in `relay plan` (see below; on by default).
+5. **Watch it build.** Every behaviour: failing acceptance test written by the specifier →
+   red proven by an actual run → built → green proven → code review ∥ test-design review →
+   accepted by the specifier citing the machine-run evidence. Stories end with a mutation
+   gate (when configured), iterations with a security gate.
+6. **Decide at checkpoints.** Every story tells you how to try it; every iteration ends
+   with continue / re-plan / stop / open a PR (`gh`, merging stays yours).
+
+### Taking over an existing codebase
+
+```bash
+cd ~/code/legacy-app
+relay learn                   # FIRST — before any swarm exists
+relay up .
+relay chat                    # then proceed as above
+```
+
+`relay learn` is the difference between "an AI edited our repo" and "the team's knowledge
+survived the handover" — run it while the people who know the codebase are still around.
+
+## The three sessions
+
+All three are **native Claude Code sessions** — real TUI, interrupts, slash commands —
+opened with a role's playbook and wired to the swarm. All three keep their conversation
+across invocations (`--new` starts over).
+
+### `relay chat` — the Interpreter
+
+Your standing conversation with the swarm. It speaks your domain language, never
+technicalities. Analyst questions, story completions, checkpoints, and escalations are
+injected into the conversation as they happen; whatever you type is recorded on the ledger
+as the owner's words before the model acts on it. If everything goes quiet, `relay watch`
+shows who is doing what — or just ask the Interpreter; it can check its own mail.
+
+### `relay learn` — the Curator
+
+An offboarding interview where the codebase scan writes the questions.
+
+- **Scans** via subagents: architecture and entry points, seams and untested areas, git
+  history (hotspots, co-change coupling, bus factor).
+- **Interviews you hypothesis-first** — never "tell me about auth", always "this module is
+  unchanged in 14 months but highly complex: (a) stable and load-bearing — my guess,
+  (b) dead, (c) feared?" in rounds of 3–7, highest stakes first.
+- **Writes as it learns** into `docs/relay/knowledge/` — `brief.md`, `domain.md`,
+  `invariants.md`, `conventions.md`, `risk-map.md`, `open-questions.md` — committing when
+  nothing material remains open. Your answers override its reading of the code;
+  contradictions are surfaced, never silently resolved.
+
+The knowledge is not decoration: every assistant is briefed from its own slice of it
+(the specifier gets invariants and conventions, security gets the risk map, …), risk areas
+gate uncharacterized changes, and reconnaissance is skipped when knowledge exists.
+Needs no swarm and no Redis — it is safe as the very first command on a raw clone.
+
+### `relay plan` — the Planner
+
+Before an iteration builds anything, you and the planner agree **how** the codebase will
+change. This is deliberately the one developer-facing surface: technical detail belongs here.
+
+- Drafts `docs/relay/plans/<iteration>.md`: changes by module, **what will not change**,
+  approach and sequencing, risks tied to your invariants, rejected alternatives.
+- Refines it with you decision by decision — the document is always the current agreement.
+- On your explicit approval it commits the plan and publishes `plan.committed` — **that
+  event is the gate**: with `plan_required: true` (the shipped default in
+  `.relay/gates.yaml`) the coordinator dispatches nothing for an unplanned iteration, and
+  the interpreter tells you the one action needed.
+- The plan rides into every specifier, builder, and reviewer turn of the iteration,
+  binding: a diff that strays from it is a finding; a discovery that breaks it is an
+  escalation back to you, never a silent improvisation.
+
+## Running the swarm
+
+| Command | What it does |
+|---|---|
+| `relay up <folder>` | start (auto-initialize on first run). `--roles builder,toolgate` for a subset, `--tmux` for a one-window board + tails, `--windows` (macOS) for one Terminal per assistant |
+| `relay down` | stop the processes; the ledger keeps everything — `relay up .` resumes exactly, even mid-behaviour, even after `kill -9` |
+| `relay watch` | the live board: per-assistant activity with elapsed time, behaviour states, event feed. `--tokens` switches to live spend per role and per turn |
+| `relay tail <role>` | one assistant's log: every tool call and turn as it happens |
+| `relay status` | ledger depth, dead-letter count, who is alive |
+| `relay pause <role>` / `relay resume <role>` | freeze a role's work intake (mail parks safely) and release it |
+| `relay destroy` | remove every trace of a swarm — workers, ledger, Redis keys, local state (asks first; the project folder is untouched) |
+
+All commands are project-centric like git: run them anywhere inside the project and they
+find `relay.toml` by walking up. `--swarm` overrides everywhere.
+
+## Trust, audit, and money
+
+- `relay audit` re-validates the entire ledger against the contract — topology, payload
+  schemas, sequence gaps, dangling replies, contract drift. A clean audit proves the
+  ledger could only have been produced by a correctly-enforcing publisher.
+- `relay export --out ledger.jsonl` snapshots the ledger verbatim (backups, incident
+  capture, replayable fixtures).
+- `relay costs` folds what the engagement actually cost from the ledger — per role, per
+  work item, cache hits against cold starts. Every model turn publishes its billable
+  footprint against the behaviour it served; per-turn budget ceilings fail closed.
+- `relay doctor` preflights the setup: Redis reachable, append-only persistence on,
+  ledger audit clean.
+
+The standing guarantees: **no timeout ever auto-approves; human gates never expire;
+nothing is dropped silently** (off-contract input is dead-lettered *and* recorded on the
+ledger); the builder never grades its own homework; red and green are proven by real runs.
+
+## Configuration
+
+**`relay.toml`** (written by `relay up`, committed):
+
+```toml
+[swarm]
+name = "myproject"
+
+[commands]                       # how the toolgate runs things, per project
+acceptance_test = "uv run pytest -q {test_paths}"
+# mutation = "uv run mutmut run"  # enables the per-story mutation gate
+
+[roles.builder]
+runner = "claude"                 # or "codex" (sandboxed per role)
+# model = "opus"                  # per-role model override
+# skip_permissions = false        # fall back to generated permission profiles
+```
+
+**`.relay/gates.yaml`** (project copy wins): which gates block at which granularity
+(review + test-design per behaviour, mutation per story, security per iteration),
+`plan_required`, attempt limits, and how much work goes into one model transaction
+(`spec_granularity` / `build_granularity`: `story` batches a story's behaviours into one
+turn; `behaviour` is one turn per slice).
+
+**What lives in your repo:** `docs/relay/knowledge/` (curated understanding),
+`docs/relay/plans/` (approved change plans), the iteration branches
+(`relay/<swarm>/i<n>`), and commits tagged `[I2.S3.B1]` so ledger ↔ git is greppable in
+both directions.
+
+## Multiple machines
+
+The hub is Redis; workers go where their work is. Put hub and hosts on a tailnet, give
+each host its own clone plus the runner CLI, generate per-role credentials with
+`relay acl --swarm x --out acls.sh` (scoped keys, no admin commands), and start role
+subsets per host:
+
+```bash
+REDIS_HOST=hub relay up ~/clones/app --swarm acme --roles builder,specifier,toolgate
+REDIS_HOST=hub relay chat --swarm acme        # your laptop: just the conversation
+```
+
+Failover needs no ceremony: start the same role anywhere and it claims the dead
+consumer's pending work automatically. Details in `docs/OPERATIONS.md`.
+
+## Going deeper
+
+- `docs/DECISIONS.md` — why the framework is shaped this way, decision by decision
+- `docs/PROTOCOL.md` — the full message catalog (generated from the contract)
+- `docs/OPERATIONS.md` — day-2 operations, single-machine and clustered
+- `relay contract show` / `relay contract gen` — the contract itself and its artifacts

@@ -35,6 +35,10 @@ class Policy:
     # commit per behaviour, gates on the diff.
     spec_granularity: str = "behaviour"
     build_granularity: str = "behaviour"
+    # Plan mode: no behaviour is dispatched for an iteration until a change
+    # plan (docs/relay/plans/<iteration>.md, authored with the Owner in
+    # `relay plan`) is committed. Fail closed, like every other gate.
+    plan_required: bool = False
 
     @staticmethod
     def load(path: Path) -> "Policy":
@@ -59,4 +63,5 @@ class Policy:
             max_attempts=int(raw.get("max_attempts", 3)),
             spec_granularity=str(raw.get("spec_granularity", "behaviour")),
             build_granularity=str(raw.get("build_granularity", "behaviour")),
+            plan_required=bool(raw.get("plan_required", False)),
         )

@@ -109,8 +109,14 @@ questions in one message get one answer.
    continue / re-plan / stop / open a PR. Act on the `decision.made`:
    continue → `iteration.started` for the next iteration;
    PR approved → `pr.approved`; stop or re-plan → follow the Owner.
-7. **Escalations** (`decision.requested`, `stall.detected`): the swarm is
-   waiting on the Owner, so make answering easy. Follow the four-step shape
+7. **Plan mode** (`stall.detected` with `waiting_on: planner`): the iteration
+   is approved but nothing will be built until the Owner agrees the technical
+   change plan. Tell them exactly that, in one line, with the one action:
+   "run `relay plan` in the project to review and approve the change plan."
+   There is nothing to relay back — the plan session unblocks the swarm
+   itself when the Owner approves.
+8. **Escalations** (`decision.requested`, other `stall.detected`): the swarm
+   is waiting on the Owner, so make answering easy. Follow the four-step shape
    above: what is stuck, the named options, your recommendation, and the
    consequence of silence. Translate the blocker into what it costs them —
    "the winning-line check cannot be verified, so that story cannot ship" —

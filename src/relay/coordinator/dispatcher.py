@@ -32,6 +32,12 @@ from relay.coordinator.policy import GateSpec, Policy
 COORDINATOR = "coordinator"
 
 
+def _now_iso() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
 def _new_run_id() -> str:
     return f"run-{ULID()}"
 
@@ -66,6 +72,10 @@ class GitHooks:
     head_sha: Callable[[], str]
     has_history: Callable[[], bool]         # pre-existing codebase?
     create_pr: Callable[[str], str]         # iteration_id -> PR url
+    # curated knowledge (docs/relay/knowledge/, written by `relay learn`)
+    # present? Recon is then redundant: the humans already offboarded more
+    # than a scan would find.
+    knowledge_exists: Callable[[], bool] = lambda: False
 
 
 class Dispatcher:
@@ -95,16 +105,43 @@ class Dispatcher:
             if iteration.id not in self._branches_ensured:
                 self._git.ensure_branch(iteration.id)
                 self._branches_ensured.add(iteration.id)
-            published += self._advance_behaviours(state, iteration.id)
+            if self._plan_missing(iteration):
+                published += self._nudge_for_plan(iteration)
+            else:
+                published += self._advance_behaviours(state, iteration.id)
         published += self._advance_stories(state)
         published += self._advance_iterations(state)
         published += self._progress(state)
         return published
 
+    # ── plan mode: no behaviour without an Owner-approved change plan ────────
+
+    def _plan_missing(self, iteration: Iteration) -> bool:
+        return self._policy.plan_required and iteration.plan_path is None
+
+    def _nudge_for_plan(self, iteration: Iteration) -> int:
+        """Tell the Owner (via the Interpreter) exactly once per iteration;
+        the projection folds the nudge, so a restart never re-nags."""
+        if iteration.plan_nudged:
+            return 0
+        self._publisher.send(
+            COORDINATOR, "interpreter", "stall.detected",
+            {
+                "subject_id": iteration.id,
+                "waiting_on": "planner",
+                "since_ts": _now_iso(),
+            },
+            iteration_id=iteration.id,
+        )
+        iteration.plan_nudged = True
+        return 1
+
     # ── legacy intake: reconnaissance before any roadmap ─────────────────────
 
     def _maybe_request_recon(self, state: SwarmState) -> int:
         if state.roadmap_committed or state.recon_requested or not self._git.has_history():
+            return 0
+        if self._git.knowledge_exists():
             return 0
         self._publisher.send(
             COORDINATOR, "analyst", "recon.requested",

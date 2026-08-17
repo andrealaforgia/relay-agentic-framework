@@ -166,6 +166,20 @@ def _iteration_ready_announced(state: SwarmState, env: Envelope) -> None:
         iteration.ready_announced = True
 
 
+def _plan_committed(state: SwarmState, env: Envelope) -> None:
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        iteration.plan_path = str(env.payload["plan_path"])
+
+
+def _stall_detected(state: SwarmState, env: Envelope) -> None:
+    # the coordinator's own plan-mode nudge: fold it so a restart never re-nags
+    if str(env.payload.get("waiting_on")) == "planner":
+        iteration = state.iterations.get(str(env.payload.get("subject_id")))
+        if iteration:
+            iteration.plan_nudged = True
+
+
 def _pr_approved(state: SwarmState, env: Envelope) -> None:
     iteration = state.iterations.get(str(env.payload["iteration_id"]))
     if iteration:
@@ -498,6 +512,8 @@ _HANDLERS = {
     "story.completed": _story_done_announced,
     "iteration.finished": _iteration_ready_announced,
     "decision.requested": _decision_requested,
+    "plan.committed": _plan_committed,
+    "stall.detected": _stall_detected,
     "pr.approved": _pr_approved,
     "pr.opened": _pr_opened,
     "recon.requested": _recon_requested,

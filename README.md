@@ -19,6 +19,13 @@ relay chat --swarm acme                   # terminal 1: talk to the Interpreter
 relay watch --swarm acme                  # terminal 2: live swarm feed + progress
 ```
 
+Taking over an **existing codebase**? Start with `relay learn`: it scans the code, then interviews
+you (or its current developers) hypothesis by hypothesis, writing the confirmed understanding into
+committed knowledge files (`docs/relay/knowledge/`) that every assistant is briefed from. And with
+plan mode on (`plan_required`, the default), no iteration builds anything until you have reviewed
+and approved its technical change plan in `relay plan` — the plan is then injected, binding, into
+every specifier, builder, and reviewer turn.
+
 State a problem in `relay chat`. The swarm analyses it (asking you questions), proposes a roadmap of
 shippable iterations, and — once you approve — delivers it behaviour by behaviour on an iteration
 branch, each behaviour driven by an independently-authored failing acceptance test, each gated by

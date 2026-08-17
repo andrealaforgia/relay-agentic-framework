@@ -87,6 +87,12 @@ roadmap.committed:
 iteration.started:
   iteration_id: "I1"
 
+plan.committed:
+  iteration_id: "I1"
+  plan_path: "docs/relay/plans/I1.md"
+  summary: "Extend the existing PricingRule abstraction; no schema changes; booking module untouched."
+  commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+
 iteration.aborted:
   iteration_id: "I1"
   reason: "Owner re-planned after checkpoint feedback."

@@ -18,6 +18,11 @@ per_iteration:
 wip_limit: 1
 max_attempts: 3
 
+# Plan mode: no behaviour is dispatched for an iteration until an
+# Owner-approved change plan (authored in `relay plan`) is committed as
+# docs/relay/plans/<iteration>.md and announced on the bus. Fail closed.
+plan_required: true
+
 # How much work goes into ONE model transaction. `story` hands the specifier a
 # whole story to write tests for, and the builder that story's red tests, so
 # the codebase is explored once instead of once per behaviour — measured at

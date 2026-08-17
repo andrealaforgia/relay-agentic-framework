@@ -124,6 +124,7 @@
       "enum": [
         "owner",
         "interpreter",
+        "planner",
         "analyst",
         "specifier",
         "builder",

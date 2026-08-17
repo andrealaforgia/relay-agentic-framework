@@ -38,7 +38,7 @@ def test_a_gate_is_handed_the_diff_it_was_about_to_compute(tmp_path: Path) -> No
     subprocess.run(["git", "commit", "-aqm", "place a mark"], cwd=work, check=True)
     head = _sha(work)
 
-    text = briefing.build(work, "gate.requested", {"base_sha": base, "commit_sha": head})
+    text = briefing.build(work, "reviewer", "gate.requested", {"base_sha": base, "commit_sha": head})
     assert "The change under review" in text
     assert "def place(mark)" in text          # the actual change
     assert "src/board.py" in text             # the stat line
@@ -50,7 +50,7 @@ def test_a_builder_is_handed_the_test_it_must_satisfy(tmp_path: Path) -> None:
     (work / "tests").mkdir()
     (work / "tests" / "test_place.py").write_text("def test_place():\n    assert place('X')\n")
 
-    text = briefing.build(work, "build.requested", {"test_paths": ["tests/test_place.py"]})
+    text = briefing.build(work, "builder", "build.requested", {"test_paths": ["tests/test_place.py"]})
     assert "assert place('X')" in text
     assert "Never edit these files" in text
 
@@ -62,7 +62,7 @@ def test_the_reconnaissance_brief_reaches_the_workers(tmp_path: Path) -> None:
     (work / "docs" / "codebase-brief.md").write_text("# Brief\nThe board lives in src/board.py.")
 
     for type_ in ("spec.requested", "build.requested", "gate.requested"):
-        assert "The board lives in src/board.py" in briefing.build(work, type_, {})
+        assert "The board lives in src/board.py" in briefing.build(work, "builder", type_, {})
 
 
 def test_oversized_context_is_clipped_and_says_so(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_oversized_context_is_clipped_and_says_so(tmp_path: Path) -> None:
     (work / "docs").mkdir()
     (work / "docs" / "codebase-brief.md").write_text("x" * (briefing.BRIEF_BUDGET * 3))
 
-    text = briefing.build(work, "spec.requested", {})
+    text = briefing.build(work, "specifier", "spec.requested", {})
     assert "truncated" in text
     assert len(text) < briefing.BRIEF_BUDGET * 2      # bounded, not a repo dump
 
@@ -78,10 +78,10 @@ def test_oversized_context_is_clipped_and_says_so(tmp_path: Path) -> None:
 def test_a_missing_repo_or_brief_is_silence_not_a_crash(tmp_path: Path) -> None:
     empty = tmp_path / "nothing"
     empty.mkdir()
-    assert briefing.build(empty, "gate.requested",
+    assert briefing.build(empty, "reviewer", "gate.requested",
                           {"base_sha": "a" * 40, "commit_sha": "b" * 40}) == ""
-    assert briefing.build(empty, "build.requested", {"test_paths": ["nope.py"]}) == ""
-    assert briefing.build(empty, "spec.requested", {}) == ""
+    assert briefing.build(empty, "builder", "build.requested", {"test_paths": ["nope.py"]}) == ""
+    assert briefing.build(empty, "specifier", "spec.requested", {}) == ""
 
 
 def test_the_playbook_stays_first_in_the_prompt(client, publisher, tmp_path) -> None:

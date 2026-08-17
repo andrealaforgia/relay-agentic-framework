@@ -338,6 +338,153 @@ def down(swarm: str = SwarmOpt) -> None:
         console.print(f"swarm '{name}' is down — `relay up` resumes exactly here")
 
 
+CURATOR_SESSION_SUFFIX = """
+
+== Session mode ==
+You are the Curator, running as THIS Claude Code session, in the project you
+are learning. The human here is a developer who knows this codebase — your
+job is to move what is in their head into docs/relay/knowledge/, confirmed
+hypothesis by confirmed hypothesis. Follow your loop: scan (delegate to
+subagents), hypothesize with options, write every answer into the files
+immediately, commit when the open questions are gone.
+"""
+
+PLANNER_SESSION_SUFFIX = """
+
+== Session mode ==
+You are the Planner, running as THIS Claude Code session, planning
+iteration {iteration} of this project. The human here is a developer
+reviewing an engineering plan — technical detail is welcome.
+
+== Your commands (use these exact paths; do not go looking for them) ==
+  {send}    publish on the bus (relay-send)
+  {id}      mint an id if you ever need one
+
+When (and only when) the human explicitly approves the plan: commit
+docs/relay/plans/{iteration}.md, then run
+  {send} --swarm {swarm} --from planner --to coordinator \\
+    --type plan.committed --iteration {iteration} \\
+    --payload '{{"iteration_id": "{iteration}", "plan_path": "docs/relay/plans/{iteration}.md", "summary": "<one paragraph>", "commit_sha": "<full sha from git rev-parse HEAD>"}}'
+That event is what unblocks the iteration — without it, nothing gets built.
+
+== The iteration you are planning ==
+{iteration_context}
+"""
+
+
+def _native_session_exec(
+    project: Path,
+    role: str,
+    swarm_name_: str,
+    system_prompt: str,
+    kickoff: str | None,
+    model: str,
+    new: bool,
+) -> None:
+    """Shared exec path for the curator/planner sessions (chat has its own
+    richer version with hooks and the wake proxy)."""
+    import os
+
+    from relay.cli import procs
+    from relay.cli.entrypoints import env_with_entrypoints
+
+    marker = procs.state_root() / swarm_name_ / role / "native-session"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    cmd = ["claude", "--dangerously-skip-permissions",
+           "--append-system-prompt", system_prompt, "--model", model]
+    if marker.exists() and not new:
+        cmd.append("--continue")
+    else:
+        marker.write_text("started")
+        if kickoff:
+            cmd.append(kickoff)
+    os.chdir(project)
+    os.execvpe("claude", cmd, env_with_entrypoints())
+
+
+@app.command()
+def learn(
+    swarm: str = SwarmOpt,
+    new: bool = typer.Option(False, "--new", help="Start a fresh learning session"),
+) -> None:
+    """Learn an existing codebase WITH its developers: scan, confirm
+    hypotheses with the human, and write curated knowledge the whole swarm
+    uses (docs/relay/knowledge/). Works before any swarm is up."""
+    from relay.cli.context import NoProjectError, find_project, swarm_name
+
+    try:
+        project = find_project()
+        name = swarm or swarm_name(project)
+    except NoProjectError:
+        project = Path.cwd()
+        name = swarm or project.name  # learning needs no swarm, only a marker home
+    playbook = (Path(__file__).resolve().parents[3] / "roles" / "curator.md").read_text()
+    kickoff = ("Scan this codebase per your loop (delegate the heavy reading to "
+               "subagents), draft docs/relay/knowledge/, then open the interview "
+               "with your first round of highest-stakes hypotheses.")
+    _native_session_exec(project, "curator", name, playbook + CURATOR_SESSION_SUFFIX,
+                         kickoff, "opus", new)
+
+
+@app.command()
+def plan(
+    swarm: str = SwarmOpt,
+    iteration: str = typer.Option(None, "--iteration", help="Iteration to plan (default: the one waiting)"),
+    new: bool = typer.Option(False, "--new", help="Start a fresh planning session"),
+) -> None:
+    """Agree the technical change plan for an iteration with the human before
+    anything is built (docs/relay/plans/<iteration>.md). With plan_required
+    on, the coordinator dispatches nothing until the plan is committed."""
+    from relay.cli.context import find_project
+    from relay.cli.entrypoints import relay_command
+    from relay.contract import load_contract
+    from relay.contract.cheatsheet import for_role
+    from relay.coordinator.projection import project as project_events
+    from relay.ledger.reader import read_all
+
+    project_dir = find_project()
+    name = _swarm(swarm)
+    client = get_client()
+    state = project_events(env for _sid, env in read_all(client, name))
+
+    target = None
+    if iteration:
+        target = state.iterations.get(iteration)
+        if target is None:
+            console.print(f"[red]✗[/red] no iteration '{iteration}' on the roadmap")
+            raise typer.Exit(1)
+    else:
+        target = state.active_iteration() or next(
+            (it for it in state.iterations.values() if it.plan_path is None and not it.aborted),
+            None,
+        )
+    if target is None:
+        console.print("[red]✗[/red] nothing to plan — approve a roadmap first (relay chat)")
+        raise typer.Exit(1)
+    if target.plan_path is not None:
+        console.print(f"[yellow]•[/yellow] {target.id} already has an approved plan "
+                      f"({target.plan_path}) — continuing the session to revise it")
+
+    lines = [f"{target.id}: {target.goal}", f"increment: {target.increment}"]
+    for sid in target.story_ids:
+        story = state.stories[sid]
+        lines.append(f"  {story.id} — {story.title}")
+        for b in state.story_behaviours(story.id):
+            lines.append(f"    {b.id}: {b.ac_text}")
+    playbook = (Path(__file__).resolve().parents[3] / "roles" / "planner.md").read_text()
+    system_prompt = playbook + PLANNER_SESSION_SUFFIX.format(
+        iteration=target.id,
+        swarm=name,
+        send=relay_command("relay-send"),
+        id=relay_command("relay-id"),
+        iteration_context="\n".join(lines),
+    ) + for_role(load_contract(), "planner")
+    kickoff = (f"Ground yourself in docs/relay/knowledge/ (if present) and the "
+               f"iteration above, draft docs/relay/plans/{target.id}.md, present "
+               f"it, and refine it with the human until they approve.")
+    _native_session_exec(project_dir, "planner", name, system_prompt, kickoff, "opus", new)
+
+
 NATIVE_SESSION_SUFFIX = """
 
 == Session mode ==

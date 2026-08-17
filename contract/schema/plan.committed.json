@@ -223,16 +223,24 @@
   },
   "additionalProperties": false,
   "properties": {
-    "reasons": {
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1,
-      "type": "array"
+    "commit_sha": {
+      "$ref": "#/$defs/GitSha"
+    },
+    "iteration_id": {
+      "$ref": "#/$defs/IterationId"
+    },
+    "plan_path": {
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 2000,
+      "type": "string"
     }
   },
   "required": [
-    "reasons"
+    "iteration_id",
+    "plan_path",
+    "summary"
   ],
   "type": "object"
 }

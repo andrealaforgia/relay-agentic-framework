@@ -59,6 +59,7 @@ class Coordinator:
                          f"See the ledger for the full audit trail.\n\n"
                          f"🤖 Generated with the Relay Agentic Framework",
                 ),
+                knowledge_exists=lambda: (project / "docs" / "relay" / "knowledge" / "brief.md").exists(),
             ),
         )
         self.state = SwarmState()

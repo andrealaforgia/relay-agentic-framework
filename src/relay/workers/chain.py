@@ -214,7 +214,7 @@ class ChainWorker(Worker):
             payload=json.dumps(env.payload, indent=2, sort_keys=True),
             vocabulary=self._vocabulary,
             relay_send=_relay_send_path(),
-        ) + briefing.build(self.workspace, env.type, env.payload)
+        ) + briefing.build(self.workspace, self.role, env.type, env.payload)
         prompt = base_prompt
 
         def on_event(activity: str) -> None:

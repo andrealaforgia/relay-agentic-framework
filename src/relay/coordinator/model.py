@@ -125,6 +125,8 @@ class Iteration:
     escalated: bool = False
     pr_approved: bool = False           # pr.approved seen
     pr_opened: bool = False             # pr.opened seen
+    plan_path: str | None = None        # plan.committed seen (plan mode)
+    plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
 
     def gates_passed(self) -> bool:
         return bool(self.pending_gates) and all(

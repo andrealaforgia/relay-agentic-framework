@@ -7,6 +7,10 @@ relay up ~/code/myproject        # auto-init + local redis (AOF) + workers
 cd ~/code/myproject
 relay chat                       # terminal 1 — the Interpreter, live
 relay watch                      # terminal 2 — activity board + event feed
+relay learn                      # taking over an existing codebase? do this first:
+                                 # scan + interview its developers into docs/relay/knowledge/
+relay plan                       # when an iteration waits on a change plan: review,
+                                 # refine, approve — that approval unblocks the build
 relay up . --tmux                # alternative: one tmux session, watch + per-role tails
 ```
 

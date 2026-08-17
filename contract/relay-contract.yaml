@@ -17,7 +17,11 @@
 contract_version: 1
 
 roles:
-  assistants: [interpreter, analyst, specifier, builder, reviewer, qa, security]
+  # planner is session-hosted like the interpreter: it lives inside
+  # `relay plan` (a native Claude Code session) and is never started by
+  # `relay up`. It exists as a role so its one formal act — committing an
+  # approved change plan — is a first-class, audited edge.
+  assistants: [interpreter, planner, analyst, specifier, builder, reviewer, qa, security]
   humans: [owner]
   infra: [coordinator, toolgate, system]
 
@@ -35,7 +39,7 @@ defs:
   QuestionId: { type: string, pattern: "^q-[0-9A-HJKMNP-TV-Z]{26}$" }
   Role:
     type: string
-    enum: [owner, interpreter, analyst, specifier, builder, reviewer, qa, security, coordinator, toolgate]
+    enum: [owner, interpreter, planner, analyst, specifier, builder, reviewer, qa, security, coordinator, toolgate]
   BehaviourKind: { type: string, enum: [ac, integration, characterization] }
   GateName: { type: string, enum: [code_review, test_design, mutation, security, checkpoint, open_pr] }
   Severity: { type: string, enum: [blocker, major, minor, nit] }
@@ -105,6 +109,7 @@ edges:
     interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved,
                               decision.made]
     coordinator>interpreter: [story.completed, iteration.finished, stall.detected, roadmap.rejected, decision.requested, pr.opened]
+    planner>coordinator: [plan.committed]
   work:
     interpreter>analyst: [analysis.requested, answers.relayed]
     analyst>interpreter: [questions.raised, recon.completed, stories.written]
@@ -317,6 +322,17 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         summary: { type: string }
         how_to_try: { type: string, maxLength: 600 }
+
+  plan.committed:
+    payload_schema:
+      type: object
+      required: [iteration_id, plan_path, summary]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        plan_path: { type: string }          # committed in the repo, e.g. docs/relay/plans/I2.md
+        summary: { type: string, maxLength: 2000 }
+        commit_sha: { $ref: "#/$defs/GitSha" }
 
   stall.detected:
     payload_schema:

@@ -356,6 +356,37 @@ behaviour named in the payload. The live run was fine; any restart re-dispatched
 finished work. State is a fold over the ledger (D3) or it is nothing — the fold
 now moves every behaviour a batched request covers.
 
+## D17 — Learn and plan: two more native sessions, one substrate (2026-08-17)
+
+Taking over an existing codebase from its developers needs two things a
+scanner cannot produce: the WHY in the humans' heads, and agreement on HOW
+each change will land. Both became native Claude Code sessions in the
+chat/interpreter mold:
+
+- **`relay learn` (curator)** — an offboarding interview where the codebase
+  scan writes the questions: scan via subagents, confirm hypotheses with the
+  human (options + recommended guess, never open questions), fold every
+  answer immediately into committed files under `docs/relay/knowledge/`
+  (brief, domain, invariants, conventions, risk-map, open-questions). Human
+  answers override code reading; contradictions are surfaced, not resolved
+  silently. Needs no swarm and no Redis.
+- **`relay plan` (planner)** — before any behaviour of an iteration is
+  built, the human and the planner agree `docs/relay/plans/<iteration>.md`
+  (changes by module, what will NOT change, sequencing, risks, rejected
+  alternatives). Approval is an event (`plan.committed`, planner>coordinator)
+  and the gate is code: with `plan_required` on, the dispatcher refuses to
+  dispatch a behaviour for an unplanned iteration and nudges the Owner
+  exactly once (folded into the projection, so restarts never re-nag).
+  Plan mode is explicitly a developer-facing surface — the one place where
+  technical language reaches the human by design.
+
+Both artifacts feed the swarm through the briefing layer (D16): knowledge is
+sliced per role (specifier gets invariants and conventions, security gets the
+risk map…), and the iteration's plan is injected into every specifier,
+builder, and reviewer turn — binding, so a deviating diff is a reviewable
+finding, not a surprise. Knowledge also short-circuits reconnaissance: if
+`docs/relay/knowledge/brief.md` exists, recon is redundant and skipped.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

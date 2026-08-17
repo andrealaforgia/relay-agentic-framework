@@ -29,14 +29,20 @@ enforced in code before every write and after every read.
 
 ## Install
 
+From a checkout (recommended — edits take effect immediately):
+
 ```bash
-uv tool install git+https://github.com/andrealaforgia/relay-agentic-framework
+git clone https://github.com/andrealaforgia/relay-agentic-framework
+cd relay-agentic-framework
+make install        # redis if missing, dev env, and `relay` on your PATH
 ```
 
-Requirements: `claude` (Claude Code CLI, authenticated), `git`, `redis-server`
-(`brew install redis` — `relay up` starts and configures it), `gh` if you want PRs opened
-for you. Assistants run on Claude by default; any worker role can run on OpenAI Codex
-instead (`runner = "codex"` in `relay.toml`).
+Or without a checkout: `uv tool install git+https://github.com/andrealaforgia/relay-agentic-framework`.
+
+Requirements: `claude` (Claude Code CLI, authenticated), `git`, and `gh` if you want PRs
+opened for you (`make install` takes care of `redis-server`). Assistants run on Claude by
+default; any worker role can run on OpenAI Codex instead (`runner = "codex"` in
+`relay.toml`). `make help` lists the other targets (`test`, `typecheck`, `contract`, …).
 
 ## The two workflows
 
@@ -130,8 +136,9 @@ change. This is deliberately the one developer-facing surface: technical detail 
 |---|---|
 | `relay up <folder>` | start (auto-initialize on first run). `--roles builder,toolgate` for a subset, `--tmux` for a one-window board + tails, `--windows` (macOS) for one Terminal per assistant |
 | `relay down` | stop the processes; the ledger keeps everything — `relay up .` resumes exactly, even mid-behaviour, even after `kill -9` |
-| `relay watch` | the live board: per-assistant activity with elapsed time, behaviour states, event feed. `--tokens` switches to live spend per role and per turn |
+| `relay watch` | the live board: per-assistant activity with elapsed time, behaviour states, event feed. `--events` shows every ledger event from the start as a table; `--tokens` shows live spend per role and per turn |
 | `relay tail <role>` | one assistant's log: every tool call and turn as it happens |
+| `relay costs` | what the engagement cost, folded from the ledger — per role, with cache warmth and cold starts. `--by-behaviour` attributes spend to work items instead |
 | `relay status` | ledger depth, dead-letter count, who is alive |
 | `relay pause <role>` / `relay resume <role>` | freeze a role's work intake (mail parks safely) and release it |
 | `relay destroy` | remove every trace of a swarm — workers, ledger, Redis keys, local state (asks first; the project folder is untouched) |
@@ -146,9 +153,11 @@ find `relay.toml` by walking up. `--swarm` overrides everywhere.
   ledger could only have been produced by a correctly-enforcing publisher.
 - `relay export --out ledger.jsonl` snapshots the ledger verbatim (backups, incident
   capture, replayable fixtures).
-- `relay costs` folds what the engagement actually cost from the ledger — per role, per
-  work item, cache hits against cold starts. Every model turn publishes its billable
-  footprint against the behaviour it served; per-turn budget ceilings fail closed.
+- `relay costs` folds what the engagement actually cost from the ledger — per role, or per
+  work item with `--by-behaviour`, with cache hits against cold starts. Every model turn
+  publishes its billable footprint against the behaviour it served, so this survives
+  `relay destroy`; per-turn budget ceilings fail closed. For the live view while the swarm
+  runs, use `relay watch --tokens`.
 - `relay doctor` preflights the setup: Redis reachable, append-only persistence on,
   ledger audit clean.
 

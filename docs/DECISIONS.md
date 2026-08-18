@@ -387,7 +387,7 @@ builder, and reviewer turn — binding, so a deviating diff is a reviewable
 finding, not a surprise. Knowledge also short-circuits reconnaissance: if
 `docs/relay/knowledge/brief.md` exists, recon is redundant and skipped.
 
-## D18 — A judge changing its mind is not a fix (2026-08-18)
+## D19 — A judge changing its mind is not a fix (2026-08-18)
 
 The security gate failed an iteration with findings; `retry` re-ran it on
 the SAME commit; the model passed it. Nothing had changed but the verdict —

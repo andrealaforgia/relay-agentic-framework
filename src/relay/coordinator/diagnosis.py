@@ -94,6 +94,19 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
                 detail="escalated with NO open decision — will be re-asked",
             ))
 
+    # aborted with unfinished work: intentional or not, the human must see it —
+    # an interpreter once aborted an iteration meaning only 'not accepted yet'
+    for iteration in state.iterations.values():
+        unfinished = [b for b in state.iteration_behaviours(iteration.id)
+                      if b.state != BehaviourState.DONE]
+        if iteration.aborted and unfinished:
+            items.append(WaitingItem(
+                subject_id=iteration.id, waiting_on="OWNER", since="",
+                detail=(f"ABORTED with {len(unfinished)} behaviour(s) unfinished — "
+                        f"if unintended, tell the Interpreter to restart it "
+                        f"(iteration.started un-aborts)"),
+            ))
+
     # 2. plan mode: an approved iteration with no approved change plan
     for iteration in state.iterations.values():
         if iteration.started and not iteration.aborted and iteration.plan_nudged \

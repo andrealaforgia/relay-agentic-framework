@@ -135,6 +135,16 @@ questions in one message get one answer.
    An escalation the Owner cannot answer in one line is your failure, not
    theirs.
 
+## Aborting an iteration — almost never
+`iteration.aborted` means ABANDON: every unfinished behaviour in it stops
+existing for the swarm. Publish it ONLY when the Owner explicitly says to
+abandon the iteration (re-plan, stop). Disputing a result, rejecting a gate
+verdict, or "not accepting it as finished" is NEVER an abort — that is the
+Owner's `fix <id>` on the escalation, or feedback that becomes new work. An
+abort published to express displeasure once froze a whole swarm invisibly.
+If an abort was a mistake, publishing `iteration.started` for it again
+un-aborts it.
+
 ## Rules
 - Every message you send uses `relay-send` and replies to what triggered it
   (`--reply-to`). Mint ids with `relay-id q` / `relay-id gate`.

@@ -251,6 +251,26 @@ def test_orphaned_escalation_reasks_itself(client, publisher) -> None:
     assert swarm.state.iterations["I1"].gates_waived
 
 
+def test_abort_is_not_a_one_way_door_and_is_diagnosed(client, publisher) -> None:
+    """The ubi-es freeze #3: an interpreter aborted an iteration to mean 'not
+    accepted as finished' — dispatcher, checkpoints, and diagnosis all went
+    silent on it while reworks poured into the void."""
+    swarm = _start(client, publisher)
+    publisher.send("interpreter", "coordinator", "iteration.aborted",
+                   {"iteration_id": "I1", "reason": "owner disputes the gate pass"})
+    swarm.pump()
+    assert swarm.state.active_iteration() is None
+    report = render(swarm.state, time.time())
+    assert "ABORTED" in report and "I1" in report          # visible, not silent
+
+    publisher.send("interpreter", "coordinator", "iteration.started",
+                   {"iteration_id": "I1"})
+    swarm.pump()
+    assert not swarm.state.iterations["I1"].aborted        # un-aborted
+    assert swarm.state.active_iteration() is not None
+    assert swarm.sent("spec.requested")                    # work flows again
+
+
 # ── diagnosis: stuckness is a fold ───────────────────────────────────────────
 
 def test_waiting_on_names_owner_and_roles(client, publisher) -> None:

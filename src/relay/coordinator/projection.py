@@ -180,6 +180,10 @@ def _iteration_started(state: SwarmState, env: Envelope) -> None:
     iteration = state.iterations.get(str(env.payload["iteration_id"]))
     if iteration:
         iteration.started = True
+        # restarting an aborted iteration un-aborts it: abort must never be a
+        # one-way door (an interpreter once aborted an iteration to express
+        # 'not accepted as finished' and froze the swarm invisibly)
+        iteration.aborted = False
 
 
 def _iteration_aborted(state: SwarmState, env: Envelope) -> None:

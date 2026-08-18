@@ -435,6 +435,33 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
         env.payload.get("subject_id") or env.behaviour_id
         or (info.subject_id if info else "")
     )
+    decision = str(env.payload.get("decision"))
+
+    # escalated stories and iterations have the same way back as behaviours:
+    # retry = re-earn the gate, drop = the Owner waives it and work proceeds
+    story = state.stories.get(subject)
+    if story is not None and story.escalated:
+        if decision in ("retry", "drop"):
+            if info is not None:
+                info.closed = True
+            story.escalated = False
+            if decision == "retry":
+                story.reset_gates()
+            else:
+                story.gates_waived = True
+        return
+    iteration = state.iterations.get(subject)
+    if iteration is not None and iteration.escalated:
+        if decision in ("retry", "drop"):
+            if info is not None:
+                info.closed = True
+            iteration.escalated = False
+            if decision == "retry":
+                iteration.pending_gates.clear()
+            else:
+                iteration.gates_waived = True
+        return
+
     b = state.behaviours.get(subject)
     if b is None or b.state != BehaviourState.BLOCKED:
         # nothing this could unblock: never let a human decision evaporate
@@ -442,7 +469,6 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
         return
     if info is not None:
         info.closed = True
-    decision = str(env.payload.get("decision"))
     if decision == "retry":
         b.state = BehaviourState.PLANNED
         b.attempt = 1

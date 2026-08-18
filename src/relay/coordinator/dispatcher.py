@@ -728,7 +728,7 @@ class Dispatcher:
             if not state.story_behaviours_done(story.id):
                 continue
             specs = self._policy.per_story
-            if specs:
+            if specs and not story.gates_waived:
                 published += self._advance_story_gates(state, story, specs)
                 if not story.gates_passed():
                     continue
@@ -825,7 +825,7 @@ class Dispatcher:
             if not stories_done:
                 continue
             specs = self._policy.per_iteration
-            if specs:
+            if specs and not iteration.gates_waived:
                 published += self._advance_iteration_gates(state, iteration, specs)
                 if not iteration.gates_passed():
                     continue
@@ -883,7 +883,9 @@ class Dispatcher:
                     "subject_id": iteration.id,
                     "reason": (
                         f"iteration {iteration.id} gate failed: {', '.join(failed)} — "
-                        f"review the findings and decide (fix, accept, or re-plan)"
+                        f"review the findings, then reply exactly `retry {iteration.id}` "
+                        f"(run the gate again, e.g. after fixes land) or "
+                        f"`drop {iteration.id}` (waive this gate and proceed)"
                     ),
                 },
                 iteration_id=iteration.id,

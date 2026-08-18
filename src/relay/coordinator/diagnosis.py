@@ -97,8 +97,8 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
     for b in state.behaviours.values():
         if b.state in (BehaviourState.DONE, BehaviourState.BLOCKED, BehaviourState.PLANNED):
             continue
-        iteration = state.iterations.get(b.iteration_id)
-        if iteration is None or not iteration.started or iteration.aborted:
+        parent = state.iterations.get(b.iteration_id)
+        if parent is None or not parent.started or parent.aborted:
             continue
         role = STATE_WAITS_ON.get(b.state, "coordinator")
         if b.state == BehaviourState.GATES_PENDING:

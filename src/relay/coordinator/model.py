@@ -122,8 +122,11 @@ class Story:
     mutation_run_id: str | None = None  # in-flight or judged mutation run
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     escalated: bool = False
+    gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
 
     def gates_passed(self) -> bool:
+        if self.gates_waived:
+            return True
         return bool(self.pending_gates) and all(
             g.verdict == "pass" for g in self.pending_gates.values()
         )
@@ -152,8 +155,11 @@ class Iteration:
     pr_opened: bool = False             # pr.opened seen
     plan_path: str | None = None        # plan.committed seen (plan mode)
     plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
+    gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
 
     def gates_passed(self) -> bool:
+        if self.gates_waived:
+            return True
         return bool(self.pending_gates) and all(
             g.verdict == "pass" for g in self.pending_gates.values()
         )

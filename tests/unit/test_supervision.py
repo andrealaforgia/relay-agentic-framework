@@ -164,6 +164,59 @@ def test_gate_redispatch_supersedes_the_unanswered_gate(client, publisher) -> No
                        BehaviourState.SATISFIED_PENDING)
 
 
+# ── the way back exists for EVERY escalation subject, not just behaviours ───
+
+def _escalate_iteration_gate(swarm: MiniSwarm) -> str:
+    gate_id = "gate-01M08YB2FF5X6KHTRJXR948MDW"
+    swarm.publisher.send(
+        "coordinator", "interpreter", "decision.requested",
+        {"gate_id": gate_id, "subject_id": "I1",
+         "reason": "iteration I1 gate failed: security"},
+    )
+    swarm.pump()
+    assert swarm.state.iterations["I1"].escalated
+    return gate_id
+
+
+def test_iteration_escalation_drop_waives_the_gate(client, publisher) -> None:
+    swarm = _start(client, publisher)
+    gate_id = _escalate_iteration_gate(swarm)
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": gate_id, "subject_id": "I1", "decision": "drop",
+                    "comment": "drop I1"})
+    swarm.pump()
+    it = swarm.state.iterations["I1"]
+    assert not it.escalated and it.gates_waived and it.gates_passed()
+    assert swarm.state.decisions[gate_id].closed
+    assert not swarm.state.decision_mismatch
+
+
+def test_iteration_escalation_retry_reruns_the_gate(client, publisher) -> None:
+    swarm = _start(client, publisher)
+    gate_id = _escalate_iteration_gate(swarm)
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": gate_id, "subject_id": "I1", "decision": "retry"})
+    swarm.pump()
+    it = swarm.state.iterations["I1"]
+    assert not it.escalated and not it.gates_waived
+    assert it.pending_gates == {}          # gates must be re-earned
+
+
+def test_story_escalation_has_the_same_way_back(client, publisher) -> None:
+    swarm = _start(client, publisher)
+    gate_id = "gate-01M08YB2FF5X6KHTRJXR948MDX"
+    publisher.send("coordinator", "interpreter", "decision.requested",
+                   {"gate_id": gate_id, "subject_id": "I1.S1",
+                    "reason": "story gate failed: mutation"})
+    swarm.pump()
+    assert swarm.state.stories["I1.S1"].escalated
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": gate_id, "subject_id": "I1.S1", "decision": "drop"})
+    swarm.pump()
+    story = swarm.state.stories["I1.S1"]
+    assert not story.escalated and story.gates_waived and story.gates_passed()
+
+
 # ── diagnosis: stuckness is a fold ───────────────────────────────────────────
 
 def test_waiting_on_names_owner_and_roles(client, publisher) -> None:

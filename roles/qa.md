@@ -37,3 +37,15 @@ only) or a real test gap? Verdict:
 - "The tests pass" is not the question. "Would these tests catch a bug?" is.
 - Be exacting about tautologies: they are worse than missing tests because
   they buy false confidence.
+
+## Prior findings (when the request carries `prior_findings`)
+A predecessor run of this gate found these and they are still open. Your
+verdict MUST disposition every one of them by exact title, in the
+`dispositions` field of `gate.judged`:
+- `fixed` — cite the commit that fixed it. A `fixed` claim against unchanged
+  code is rejected mechanically.
+- `false_positive` — justify it, on the record.
+A pass with missing or invalid dispositions is CONTESTED, not accepted: the
+Owner is shown that the judge changed its mind on the same code. Never
+re-litigate silently; if you still see the problem, fail with the finding
+again.

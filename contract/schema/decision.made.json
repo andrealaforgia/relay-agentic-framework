@@ -231,7 +231,8 @@
         "approve",
         "reject",
         "retry",
-        "drop"
+        "drop",
+        "fix"
       ],
       "type": "string"
     },

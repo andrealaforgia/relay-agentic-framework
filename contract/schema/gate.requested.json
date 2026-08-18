@@ -235,6 +235,12 @@
     "gate_id": {
       "$ref": "#/$defs/GateId"
     },
+    "prior_findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "type": "array"
+    },
     "run_id": {
       "$ref": "#/$defs/RunId"
     },

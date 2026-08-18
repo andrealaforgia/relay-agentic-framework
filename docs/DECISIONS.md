@@ -387,6 +387,21 @@ builder, and reviewer turn — binding, so a deviating diff is a reviewable
 finding, not a surprise. Knowledge also short-circuits reconnaissance: if
 `docs/relay/knowledge/brief.md` exists, recon is redundant and skipped.
 
+## D18 — A judge changing its mind is not a fix (2026-08-18)
+
+The security gate failed an iteration with findings; `retry` re-ran it on
+the SAME commit; the model passed it. Nothing had changed but the verdict —
+stochastic judges flip, and retries were verdict-shopping. Now: findings
+ratchet per (subject, gate) until dispositioned; a re-run judge receives
+them (`prior_findings`) and its pass must disposition every one — `fixed`
+citing the fixing commit (rejected by arithmetic when the code is
+unchanged) or `false_positive`, justified on the record. A fail→pass flip
+on identical code is CONTESTED regardless, and contested never resolves
+silently: the Owner decides with a third token, `fix <id>`, which turns the
+findings into rework on the subject's integration behaviour so the gate
+re-runs on genuinely changed code. `retry` keeps its honest use (transient
+failures) but can no longer launder findings.
+
 ## Phased roadmap
 
 - **Phase 0** — contract kernel + bus spine, all self-tested, no LLM anywhere.

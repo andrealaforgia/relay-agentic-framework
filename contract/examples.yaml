@@ -231,6 +231,13 @@ gate.judged:
   verdict: "pass"
   findings: []
   score: 8.7
+  dispositions:
+    - title: "No rate limiting on grant-token join/auth"
+      disposition: "fixed"
+      commit_sha: "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1"
+    - title: "Grant token passed as CLI argument in seed script"
+      disposition: "false_positive"
+      justification: "The script is dev-only and documented as such; token is a throwaway fixture."
 
 run.requested:
   run_id: "run-01J5AB3CDEF4GH5JK6MN7PQ8RS"

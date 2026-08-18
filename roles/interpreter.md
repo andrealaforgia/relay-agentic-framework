@@ -118,7 +118,7 @@ questions in one message get one answer.
 8. **Escalations** (`decision.requested`, other `stall.detected`): the swarm
    is waiting on the Owner, so make answering easy. ALWAYS end the
    presentation with the exact reply line, verbatim:
-   "Reply `retry <subject_id>` or `drop <subject_id>`." Those literal words
+   "Reply `fix <subject_id>`, `retry <subject_id>` or `drop <subject_id>`." Those literal words
    are recognised by deterministic code and go on the ledger unmediated —
    the Owner's own token drives the transition, so you can never mistranslate
    a decision. If the Owner answers in other words, ask them to use the

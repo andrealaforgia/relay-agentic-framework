@@ -158,10 +158,10 @@ def _fold_state(client: redis.Redis, swarm: str) -> "SwarmState":
 def _maybe_publish_decision(
     client: redis.Redis, publisher: Publisher, swarm: str, prompt: str
 ) -> str | None:
-    """`retry <subject>` / `drop <subject>` answering an OPEN escalation."""
+    """`retry|drop|fix <subject>` answering an OPEN escalation."""
     import re
 
-    match = re.match(r"^\s*(retry|drop)\s+(\S+)\s*$", prompt, re.IGNORECASE)
+    match = re.match(r"^\s*(retry|drop|fix)\s+(\S+)\s*$", prompt, re.IGNORECASE)
     if not match:
         return None
     decision, subject = match.group(1).lower(), match.group(2)

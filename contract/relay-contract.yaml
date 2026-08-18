@@ -185,10 +185,11 @@ message_types:
       additionalProperties: false
       properties:
         gate_id: { $ref: "#/$defs/GateId" }
-        # approve/reject answer a gate; retry/drop answer an escalation about a
-        # blocked behaviour — without them BLOCKED is a one-way door and an
-        # escalation has no return path.
-        decision: { type: string, enum: [approve, reject, retry, drop] }
+        # approve/reject answer a gate; retry/drop/fix answer an escalation —
+        # without them BLOCKED is a one-way door. `fix` turns the escalation's
+        # findings into rework so the gate re-runs on CHANGED code; `retry`
+        # re-runs as-is (transient failures); `drop` is the Owner's waiver.
+        decision: { type: string, enum: [approve, reject, retry, drop, fix] }
         subject_id: { type: string }
         comment: { type: string }
 
@@ -593,6 +594,9 @@ message_types:
         commit_sha: { $ref: "#/$defs/GitSha" }
         base_sha: { $ref: "#/$defs/GitSha" }
         run_id: { $ref: "#/$defs/RunId" }    # e.g. the mutation tool run qa must judge
+        # findings from earlier runs of this gate on this subject that are
+        # still open: the verdict must disposition every one of them
+        prior_findings: { type: array, items: { $ref: "#/$defs/Finding" } }
 
   gate.judged:
     payload_schema:
@@ -605,6 +609,22 @@ message_types:
         findings: { type: array, items: { $ref: "#/$defs/Finding" } }
         score: { type: number }             # e.g. Farley Index, security score
         run_id: { $ref: "#/$defs/RunId" }
+        # After a fail, the burden of proof is on the pass: each prior finding
+        # must be dispositioned by exact title — `fixed` (cite the fixing
+        # commit; mechanically rejected if the code did not change) or
+        # `false_positive` (justify, on the record). A pass with missing or
+        # invalid dispositions is CONTESTED, never silently accepted.
+        dispositions:
+          type: array
+          items:
+            type: object
+            required: [title, disposition]
+            additionalProperties: false
+            properties:
+              title: { type: string, maxLength: 200 }
+              disposition: { type: string, enum: [fixed, false_positive] }
+              commit_sha: { $ref: "#/$defs/GitSha" }
+              justification: { type: string, maxLength: 1000 }
 
   # ── run ─────────────────────────────────────────────────────────────────────
   run.requested:

@@ -223,6 +223,37 @@
   },
   "additionalProperties": false,
   "properties": {
+    "dispositions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_sha": {
+            "$ref": "#/$defs/GitSha"
+          },
+          "disposition": {
+            "enum": [
+              "fixed",
+              "false_positive"
+            ],
+            "type": "string"
+          },
+          "justification": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "disposition"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "findings": {
       "items": {
         "$ref": "#/$defs/Finding"

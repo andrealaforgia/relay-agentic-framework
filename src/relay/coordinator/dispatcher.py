@@ -99,6 +99,8 @@ class Dispatcher:
         published = self._maybe_request_recon(state)
         published += self._escalate_orphan_errors(state)
         published += self.reask_after_mismatch(state)
+        published += self._escalate_contested(state)
+        published += self._execute_fixes(state)
         if not state.roadmap_committed:
             return published
         if not self._roadmap_valid(state):
@@ -138,10 +140,106 @@ class Dispatcher:
         if not state.roadmap_committed:
             return 0
         published = self._nudge_open_decisions(state, now_s)
+        published += self._escalate_contested(state)
         published += self._reask_orphan_escalations(state)
         published += self._supervise_behaviours(state, now_s)
         published += self._supervise_story_and_iteration_gates(state, now_s)
         return published
+
+    # ── verdict integrity: contested passes and the Owner's `fix` ────────────
+
+    def _prior_findings(self, state: SwarmState, subject_id: str, gate: str) -> list[dict[str, object]]:
+        """Open findings for (subject, gate), in Finding schema shape — the
+        re-run judge is told what its predecessor found and must disposition."""
+        from relay.coordinator.projection import findings_key
+
+        return [_sanitize_finding(f)
+                for f in state.open_findings.get(findings_key(subject_id, gate), [])]
+
+    def _collect_findings(self, state: SwarmState, subject_prefix: str) -> list[dict[str, object]]:
+        collected: list[dict[str, object]] = []
+        for key, findings in state.open_findings.items():
+            if key.split("|", 1)[0] == subject_prefix or key.startswith(subject_prefix + "|"):
+                collected.extend(_sanitize_finding(f) for f in findings)
+        return collected
+
+    def _escalate_contested(self, state: SwarmState) -> int:
+        """A gate that flipped on identical code, or passed over undispositioned
+        findings, goes to the Owner — never resolves silently."""
+        published = 0
+        subjects: dict[str, str] = {}
+        for b in state.behaviours.values():
+            for g in b.pending_gates.values():
+                if g.verdict == "contested":
+                    subjects.setdefault(b.id, g.contested_reason)
+        for story in state.stories.values():
+            if not story.gates_waived:
+                for g in story.pending_gates.values():
+                    if g.verdict == "contested":
+                        subjects.setdefault(story.id, g.contested_reason)
+        for iteration in state.iterations.values():
+            if not iteration.gates_waived:
+                for g in iteration.pending_gates.values():
+                    if g.verdict == "contested":
+                        subjects.setdefault(iteration.id, g.contested_reason)
+        open_subjects = {d.subject_id for d in state.decisions.values() if not d.closed}
+        for subject_id, why in subjects.items():
+            if subject_id in open_subjects:
+                continue
+            gate_id = _new_gate_id()
+            state.decisions[gate_id] = DecisionInfo(
+                gate_id=gate_id, subject_id=subject_id, reason="", since="",
+                last_ask="", asks=0,
+            )
+            self._publisher.send(
+                COORDINATOR, "interpreter", "decision.requested",
+                {"gate_id": gate_id, "subject_id": subject_id,
+                 "reason": (
+                     f"CONTESTED verdict on {subject_id}: {why}. A judge changed its "
+                     f"mind without the code changing — that is not a fix. Reply "
+                     f"exactly `fix {subject_id}` (turn the findings into rework), "
+                     f"`retry {subject_id}` (re-run the gate as-is) or "
+                     f"`drop {subject_id}` (waive it, on the record)."
+                 )[:2000]},
+            )
+            published += 1
+        return published
+
+    def _execute_fixes(self, state: SwarmState) -> int:
+        """The Owner's `fix`: findings become rework on the subject's own
+        integration behaviour, so the gate re-runs on CHANGED code."""
+        published = 0
+        for story in state.stories.values():
+            if story.fix_requested:
+                published += self._reopen_with_findings(
+                    state, story.int_behaviour_id, self._collect_findings(state, story.id))
+                story.fix_requested = False
+        for iteration in state.iterations.values():
+            if iteration.fix_requested:
+                published += self._reopen_with_findings(
+                    state, iteration.int_behaviour_id,
+                    self._collect_findings(state, iteration.id))
+                iteration.fix_requested = False
+        return published
+
+    def _reopen_with_findings(
+        self, state: SwarmState, behaviour_id: str, findings: list[dict[str, object]]
+    ) -> int:
+        b = state.behaviours.get(behaviour_id)
+        if b is None:
+            return 0
+        if not findings:
+            findings = [{"title": "gate findings to address",
+                         "detail": "see the failed gate verdicts on the ledger",
+                         "severity": "major", "source": "coordinator"}]
+        self._publisher.send(
+            COORDINATOR, "builder", "rework.requested",
+            {"behaviour_id": b.id, "attempt": b.attempt + 1, "findings": findings},
+            behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
+        )
+        b.state = BehaviourState.BUILD_DISPATCHED
+        b.attempt += 1
+        return 1
 
     def _reask_orphan_escalations(self, state: SwarmState) -> int:
         """An escalated subject whose ask got lost (crash, crossed answers,
@@ -291,6 +389,7 @@ class Dispatcher:
                     "commit_sha": _require(commit, "gate commit"),
                     "base_sha": _require(base, "gate base"),
                     **({"run_id": run_id} if run_id else {}),
+                    **_with_prior(self._prior_findings(state, subject_id, g.gate)),
                 },
                 gate_id=gate_id, commit_sha=commit,
             )
@@ -573,7 +672,7 @@ class Dispatcher:
             return self._rework_or_escalate(b, b.last_fail_reason or "behaviour not accepted")
         if b.state == BehaviourState.AT_GREEN:
             if self._policy.per_behaviour and not b.pending_gates:
-                return self._request_behaviour_gates(b)
+                return self._request_behaviour_gates(state, b)
             if not self._policy.per_behaviour:
                 return self._request_judgement(state, b)
             return 0
@@ -624,7 +723,7 @@ class Dispatcher:
         b.state = BehaviourState.BLOCKED
         return 1
 
-    def _request_behaviour_gates(self, b: Behaviour) -> int:
+    def _request_behaviour_gates(self, state: SwarmState, b: Behaviour) -> int:
         published = 0
         for spec in self._policy.per_behaviour:
             gate_id = _new_gate_id()
@@ -637,6 +736,7 @@ class Dispatcher:
                     "subject_id": b.id,
                     "commit_sha": _require(b.built_commit, "built_commit"),
                     "base_sha": _require(b.base_sha, "base_sha"),
+                    **_with_prior(self._prior_findings(state, b.id, spec.gate)),
                 },
                 behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
                 gate_id=gate_id, commit_sha=b.built_commit,
@@ -810,6 +910,7 @@ class Dispatcher:
                         "commit_sha": last_commit,
                         "base_sha": base,
                         "run_id": story.mutation_run_id,
+                        **_with_prior(self._prior_findings(state, story.id, spec.gate)),
                     },
                     story_id=story.id, iteration_id=story.iteration_id,
                     gate_id=gate_id, commit_sha=last_commit,
@@ -896,6 +997,7 @@ class Dispatcher:
                         "subject_id": iteration.id,
                         "commit_sha": last_commit,
                         "base_sha": base,
+                        **_with_prior(self._prior_findings(state, iteration.id, spec.gate)),
                     },
                     iteration_id=iteration.id, gate_id=gate_id, commit_sha=last_commit,
                 )
@@ -913,9 +1015,11 @@ class Dispatcher:
                     "subject_id": iteration.id,
                     "reason": (
                         f"iteration {iteration.id} gate failed: {', '.join(failed)} — "
-                        f"review the findings, then reply exactly `retry {iteration.id}` "
-                        f"(run the gate again, e.g. after fixes land) or "
-                        f"`drop {iteration.id}` (waive this gate and proceed)"
+                        f"review the findings, then reply exactly `fix {iteration.id}` "
+                        f"(turn the findings into rework so the gate re-runs on changed "
+                        f"code), `retry {iteration.id}` (re-run as-is; cannot overturn "
+                        f"findings on unchanged code) or `drop {iteration.id}` "
+                        f"(waive this gate, on the record)"
                     ),
                 },
                 iteration_id=iteration.id,
@@ -963,6 +1067,18 @@ class Dispatcher:
         )
         state.last_progress = marker
         return 1
+
+
+_FINDING_KEYS = ("severity", "title", "detail", "file", "line", "source")
+
+
+def _with_prior(findings: list[dict[str, object]]) -> dict[str, object]:
+    return {"prior_findings": findings} if findings else {}
+
+
+def _sanitize_finding(f: dict[str, object]) -> dict[str, object]:
+    """Back to Finding schema shape (the ratchet adds found_at internally)."""
+    return {k: f[k] for k in _FINDING_KEYS if k in f}
 
 
 def _require(value: str | None, name: str) -> str:

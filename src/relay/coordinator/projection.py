@@ -445,23 +445,29 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
     # retry = re-earn the gate, drop = the Owner waives it and work proceeds
     story = state.stories.get(subject)
     if story is not None and story.escalated:
-        if decision in ("retry", "drop"):
+        if decision in ("retry", "drop", "fix"):
             if info is not None:
                 info.closed = True
             story.escalated = False
             if decision == "retry":
                 story.reset_gates()
+            elif decision == "fix":
+                story.reset_gates()
+                story.fix_requested = True
             else:
                 story.gates_waived = True
         return
     iteration = state.iterations.get(subject)
     if iteration is not None and iteration.escalated:
-        if decision in ("retry", "drop"):
+        if decision in ("retry", "drop", "fix"):
             if info is not None:
                 info.closed = True
             iteration.escalated = False
             if decision == "retry":
                 iteration.pending_gates.clear()
+            elif decision == "fix":
+                iteration.pending_gates.clear()
+                iteration.fix_requested = True
             else:
                 iteration.gates_waived = True
         return
@@ -473,8 +479,8 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
         return
     if info is not None:
         info.closed = True
-    if decision == "retry":
-        b.state = BehaviourState.PLANNED
+    if decision in ("retry", "fix"):    # for a single behaviour they coincide:
+        b.state = BehaviourState.PLANNED  # the full cycle re-runs and re-earns
         b.attempt = 1
         b.spec_attempts = 0
         b.pending_gates.clear()
@@ -500,6 +506,15 @@ def _rework_requested(state: SwarmState, env: Envelope) -> None:
         # story must re-earn its gates on the next completion
         if b.story_id and b.story_id in state.stories:
             state.stories[b.story_id].reset_gates()
+        # the Owner's `fix` is executed once this rework is on the ledger:
+        # clear the request so a replayed coordinator never re-fixes
+        for story in state.stories.values():
+            if story.int_behaviour_id == b.id:
+                story.fix_requested = False
+        for iteration in state.iterations.values():
+            if iteration.int_behaviour_id == b.id:
+                iteration.fix_requested = False
+                iteration.ready_announced = False  # it must re-finish honestly
 
 
 def _built(state: SwarmState, env: Envelope) -> None:
@@ -516,7 +531,8 @@ def _gate_requested(state: SwarmState, env: Envelope) -> None:
     subject_id = str(env.payload["subject_id"])
     gate_id = str(env.payload["gate_id"])
     info = GateInfo(gate_id=gate_id, gate=str(env.payload["gate"]),
-                    subject_id=subject_id, since=env.ts)
+                    subject_id=subject_id, since=env.ts,
+                    commit_sha=str(env.payload.get("commit_sha") or ""))
     if subject_kind == "behaviour":
         b = state.behaviours.get(subject_id)
         if b is not None:
@@ -548,13 +564,71 @@ def _replace_gate(pending: dict[str, GateInfo], info: GateInfo) -> None:
     pending[info.gate_id] = info
 
 
+def findings_key(subject_id: str, gate: str) -> str:
+    return f"{subject_id}|{gate}"
+
+
+def _record_fail_findings(state: SwarmState, gate: GateInfo, env: Envelope) -> None:
+    """The ratchet: findings accumulate by title until dispositioned."""
+    key = findings_key(gate.subject_id, gate.gate)
+    known = state.open_findings.setdefault(key, [])
+    titles = {str(f.get("title")) for f in known}
+    raw = env.payload.get("findings")
+    for f in raw if isinstance(raw, list) else []:
+        if isinstance(f, dict) and str(f.get("title")) not in titles:
+            entry = dict(f)
+            entry["found_at"] = gate.commit_sha
+            known.append(entry)
+            titles.add(str(f.get("title")))
+
+
+def _judge_pass(state: SwarmState, gate: GateInfo, env: Envelope) -> str:
+    """The burden of proof is on the pass. Returns the honored verdict.
+
+    A pass over open findings is honored only when every one is dispositioned
+    and no 'fixed' claim points at unchanged code; a pass on the SAME commit
+    that produced the findings is contested regardless — that is a judge
+    changing its mind, and only the Owner may accept that."""
+    key = findings_key(gate.subject_id, gate.gate)
+    open_ = state.open_findings.get(key, [])
+    if not open_:
+        return "pass"
+    same_commit = [f for f in open_ if f.get("found_at") == gate.commit_sha]
+    if same_commit:
+        gate.contested_reason = (
+            f"verdict flipped fail→pass on identical code "
+            f"({str(gate.commit_sha)[:8]}) with {len(same_commit)} finding(s) open"
+        )
+        return "contested"
+    raw = env.payload.get("dispositions")
+    dispositions = {str(d.get("title")): d for d in raw if isinstance(d, dict)} \
+        if isinstance(raw, list) else {}
+    problems: list[str] = []
+    for f in open_:
+        title = str(f.get("title"))
+        d = dispositions.get(title)
+        if d is None:
+            problems.append(f"undispositioned: {title}")
+        elif d.get("disposition") == "fixed" and d.get("commit_sha") == f.get("found_at"):
+            problems.append(f"claims fixed on unchanged code: {title}")
+    if problems:
+        gate.contested_reason = "; ".join(problems)[:400]
+        return "contested"
+    del state.open_findings[key]
+    return "pass"
+
+
 def _gate_verdict(state: SwarmState, env: Envelope) -> None:
     gate_id = str(env.payload["gate_id"])
     verdict = str(env.payload["verdict"])
     for b in state.behaviours.values():
         gate = b.pending_gates.get(gate_id)
         if gate is not None:
-            gate.verdict = verdict
+            if verdict == "fail":
+                _record_fail_findings(state, gate, env)
+                gate.verdict = "fail"
+            else:
+                gate.verdict = _judge_pass(state, gate, env)
             if b.state == BehaviourState.GATES_PENDING:
                 verdicts = [g.verdict for g in b.pending_gates.values()]
                 if any(v == "fail" for v in verdicts):
@@ -566,16 +640,25 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
                         b.last_findings = list(found) if isinstance(found, list) else []
                 elif all(v == "pass" for v in verdicts):
                     b.state = BehaviourState.GATES_PASSED
+                # contested resolves via the Owner, never via this fold
             return
     for story in state.stories.values():
         gate = story.pending_gates.get(gate_id)
         if gate is not None:
-            gate.verdict = verdict
+            if verdict == "fail":
+                _record_fail_findings(state, gate, env)
+                gate.verdict = "fail"
+            else:
+                gate.verdict = _judge_pass(state, gate, env)
             return
     for iteration in state.iterations.values():
         gate = iteration.pending_gates.get(gate_id)
         if gate is not None:
-            gate.verdict = verdict
+            if verdict == "fail":
+                _record_fail_findings(state, gate, env)
+                gate.verdict = "fail"
+            else:
+                gate.verdict = _judge_pass(state, gate, env)
             return
 
 

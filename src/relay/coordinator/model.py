@@ -57,9 +57,14 @@ class GateInfo:
     gate_id: str
     gate: str            # code_review | test_design | mutation | security
     subject_id: str
-    verdict: str | None = None  # pass | fail
+    # pass | fail | contested — contested is the projection's refusal to
+    # honor a pass that flipped on identical code or left prior findings
+    # undispositioned. It never resolves silently: the Owner decides.
+    verdict: str | None = None
     since: str = ""              # dispatch ts — deadline supervision needs it
     attempt: int = 0             # times this gate was re-dispatched (folded)
+    commit_sha: str = ""         # the code this gate was asked to judge
+    contested_reason: str = ""
 
 
 @dataclass
@@ -123,6 +128,7 @@ class Story:
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     escalated: bool = False
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
+    fix_requested: bool = False         # the Owner's `fix`: findings become rework
 
     def gates_passed(self) -> bool:
         if self.gates_waived:
@@ -156,6 +162,7 @@ class Iteration:
     plan_path: str | None = None        # plan.committed seen (plan mode)
     plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
+    fix_requested: bool = False         # the Owner's `fix`: findings become rework
 
     def gates_passed(self) -> bool:
         if self.gates_waived:
@@ -191,6 +198,10 @@ class SwarmState:
     # every escalation ever asked, by gate_id — open ones are what the swarm
     # is waiting on the OWNER for; closed ones make duplicates idempotent
     decisions: dict[str, DecisionInfo] = field(default_factory=dict)
+    # the findings ratchet: once a gate finds something on a subject, it stays
+    # attached (keyed "subject|gate") until a verdict dispositions it — fresh
+    # eyes can forget, the fold cannot. Each entry carries found_at (sha).
+    open_findings: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     # a decision.made arrived that matched nothing open: re-ask immediately
     decision_mismatch: bool = False
     # last progress.reported announced, as (iteration_id, behaviours_done) — derived

@@ -348,6 +348,19 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
                 since=env.ts,
             )
         return
+    if kind == "properties":
+        story = state.stories.get(str(env.story_id)) if env.story_id else None
+        if story is not None:
+            story.properties_run_id = run_id
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.PROPERTIES,
+                                         story_id=story.id, since=env.ts)
+            return
+        iteration = state.iterations.get(str(env.iteration_id)) if env.iteration_id else None
+        if iteration is not None:
+            iteration.properties_run_id = run_id
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.PROPERTIES,
+                                         since=env.ts)
+        return
     if kind != "acceptance_test":
         return
     b = _behaviour(state, env)
@@ -373,6 +386,7 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
     if run is None:
         return
     run.exit_code = int(env.payload["exit_code"])
+    run.summary = str(env.payload.get("summary") or "")
     if run.purpose == RunPurpose.MUTATION:
         return  # evidence only; qa judges via the gate
     b = state.behaviours.get(run.behaviour_id or "")
@@ -519,6 +533,7 @@ def _rework_requested(state: SwarmState, env: Envelope) -> None:
             if iteration.int_behaviour_id == b.id:
                 iteration.fix_requested = False
                 iteration.ready_announced = False  # it must re-finish honestly
+                iteration.properties_run_id = None  # and re-earn its property run
 
 
 def _built(state: SwarmState, env: Envelope) -> None:

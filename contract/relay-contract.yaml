@@ -634,7 +634,7 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, command] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         test_paths: { type: array, items: { type: string } }
         command: { type: string }
@@ -647,7 +647,7 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, command] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         exit_code: { type: integer }
         duration_s: { type: number, minimum: 0 }

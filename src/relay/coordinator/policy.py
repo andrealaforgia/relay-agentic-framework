@@ -46,6 +46,12 @@ class Policy:
     # An open Owner decision is re-asked at this interval, forever: waiting
     # on a human is supervised exactly like waiting on a worker.
     decision_nudge_s: int = 1800
+    # Property-based testing: run the project's property suite (the
+    # [commands].properties command in relay.toml — typically
+    # tests/properties/, seeded from docs/relay/knowledge/invariants.md)
+    # as a deterministic gate per story or per iteration. "off" | "story" |
+    # "iteration". Failures become rework with the counterexample attached.
+    properties: str = "off"
 
     @staticmethod
     def load(path: Path) -> "Policy":
@@ -73,4 +79,5 @@ class Policy:
             plan_required=bool(raw.get("plan_required", False)),
             dispatch_timeout_s=int(raw.get("dispatch_timeout_s", 2700)),
             decision_nudge_s=int(raw.get("decision_nudge_s", 1800)),
+            properties=str(raw.get("properties", "off")),
         )

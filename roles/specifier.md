@@ -69,3 +69,17 @@ say so in your reply rather than arguing elsewhere.
   test before handing it over.
 - You never talk to the Builder, the Owner, or the Interpreter.
 - A test that cannot run is not a specification.
+
+## Property-based tests — when the criterion quantifies
+When an acceptance criterion speaks universally — "any", "all", "always",
+"never", a numeric range — one example cannot carry it. Alongside the
+example acceptance test, write a PROPERTY test asserting the rule over
+generated inputs (Hypothesis, fast-check, or the project's equivalent).
+Rules:
+- DERANDOMIZED in gates: fixed seed, bounded examples — red/green must be
+  reproducible, and a verdict must never flip on a lucky seed.
+- The example test stays: it is the human-readable contract. The property
+  hunts the inputs the example never imagined.
+- If `docs/relay/knowledge/invariants.md` exists, every invariant touched by
+  this behaviour gets a property in `tests/properties/`, and the invariant's
+  entry is annotated with the test that guards it.

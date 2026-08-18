@@ -143,12 +143,15 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
 
     # 4. story mutation runs and story/iteration gates
     for story in state.stories.values():
-        if story.mutation_run_id:
-            run = state.runs.get(story.mutation_run_id)
+        for rid, label in ((story.mutation_run_id, "mutation run"),
+                           (story.properties_run_id, "property suite")):
+            if not rid:
+                continue
+            run = state.runs.get(rid)
             if run is not None and run.exit_code is None:
                 items.append(WaitingItem(
                     subject_id=story.id, waiting_on="toolgate",
-                    since=run.since, detail="mutation run in flight",
+                    since=run.since, detail=f"{label} in flight",
                 ))
         for g in story.pending_gates.values():
             if g.verdict is None:
@@ -157,6 +160,13 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
                     since=g.since, detail=f"gate {g.gate} unanswered",
                 ))
     for iteration in state.iterations.values():
+        if iteration.properties_run_id:
+            run = state.runs.get(iteration.properties_run_id)
+            if run is not None and run.exit_code is None:
+                items.append(WaitingItem(
+                    subject_id=iteration.id, waiting_on="toolgate",
+                    since=run.since, detail="property suite in flight",
+                ))
         for g in iteration.pending_gates.values():
             if g.verdict is None:
                 items.append(WaitingItem(

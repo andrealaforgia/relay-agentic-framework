@@ -237,6 +237,7 @@
         "acceptance_test",
         "suite",
         "mutation",
+        "properties",
         "command"
       ],
       "type": "string"

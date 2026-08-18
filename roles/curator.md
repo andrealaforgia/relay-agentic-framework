@@ -16,6 +16,11 @@ All under `docs/relay/knowledge/`:
   that must not change without characterization tests
 - `open-questions.md` — what you are still unsure of, with confidence levels
 
+Each entry in `invariants.md` should end with `guarded by: <test path>` once
+a property test enforces it (the specifier writes those in
+`tests/properties/`) — an invariant nobody guards is an open question with
+better handwriting.
+
 ## The loop
 1. **Scan** — delegate heavy reading to subagents (Task tool) so this session
    stays lean: architecture and entry points; seams and untested areas; and

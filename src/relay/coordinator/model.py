@@ -40,6 +40,7 @@ class RunPurpose(StrEnum):
     AT_GREEN = "at_green"
     MUTATION = "mutation"
     SATISFIED_CHECK = "satisfied_check"
+    PROPERTIES = "properties"
 
 
 @dataclass
@@ -49,6 +50,7 @@ class RunInfo:
     behaviour_id: str | None = None
     story_id: str | None = None
     exit_code: int | None = None
+    summary: str = ""                    # tail of the run output (findings need it)
     since: str = ""                      # dispatch ts — deadline supervision
 
 
@@ -125,6 +127,7 @@ class Story:
     int_behaviour_id: str = ""          # the story's own end-to-end behaviour
     done_announced: bool = False        # story.completed seen on the ledger
     mutation_run_id: str | None = None  # in-flight or judged mutation run
+    properties_run_id: str | None = None  # in-flight or judged property-suite run
     pending_gates: dict[str, GateInfo] = field(default_factory=dict)
     escalated: bool = False
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
@@ -142,6 +145,7 @@ class Story:
 
     def reset_gates(self) -> None:
         self.mutation_run_id = None
+        self.properties_run_id = None
         self.pending_gates.clear()
 
 
@@ -163,6 +167,7 @@ class Iteration:
     plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework
+    properties_run_id: str | None = None  # in-flight or judged property-suite run
 
     def gates_passed(self) -> bool:
         if self.gates_waived:

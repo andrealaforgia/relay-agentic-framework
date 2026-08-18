@@ -356,7 +356,7 @@ behaviour named in the payload. The live run was fine; any restart re-dispatched
 finished work. State is a fold over the ledger (D3) or it is nothing — the fold
 now moves every behaviour a batched request covers.
 
-## D17 — Learn and plan: two more native sessions, one substrate (2026-08-17)
+## D22 — Learn and plan: two more native sessions, one substrate (2026-08-17)
 
 Taking over an existing codebase from its developers needs two things a
 scanner cannot produce: the WHY in the humans' heads, and agreement on HOW
@@ -387,7 +387,7 @@ builder, and reviewer turn — binding, so a deviating diff is a reviewable
 finding, not a surprise. Knowledge also short-circuits reconnaissance: if
 `docs/relay/knowledge/brief.md` exists, recon is redundant and skipped.
 
-## D19 — A judge changing its mind is not a fix (2026-08-18)
+## D23 — A judge changing its mind is not a fix (2026-08-18)
 
 The security gate failed an iteration with findings; `retry` re-ran it on
 the SAME commit; the model passed it. Nothing had changed but the verdict —
@@ -412,3 +412,33 @@ failures) but can no longer launder findings.
   realm-auditing sentinel was later removed pending a redesign — see D14.)
 - **Deferred** — RelayUI (web progress radiator; cheap by design — a read-only stream consumer
   reusing the coordinator's projection), HMAC provenance, documenter role.
+
+## D24 — One example proves one point of an infinite claim (2026-08-18)
+
+Acceptance criteria are usually universal statements ("any order", "never
+negative", "for all valid inputs") but the framework's tests were all
+examples: one AT per criterion, plus the mutation gate measuring how well
+those examples bite. Property-based testing closes the gap between what the
+criterion claims and what the tests check — so it is now a first-class,
+deterministic gate, not a playbook suggestion.
+
+Two halves, split the usual way:
+
+- **Models propose** — the specifier writes a property test alongside the
+  example AT whenever a criterion quantifies universally, and turns
+  `knowledge/invariants.md` entries into `tests/properties/`; QA treats a
+  single-example test of a universal criterion as a finding; the curator
+  annotates each invariant with the test that guards it.
+- **Deterministic code disposes** — a `properties` policy knob
+  (`off | story | iteration`) makes the coordinator dispatch the project's
+  property suite (`[commands].properties`, run kind `properties`) at the last
+  built commit before `story.completed` / before iteration gates. Exit 0
+  releases the work; anything else becomes rework on the INT behaviour
+  carrying the run's artifact path — the shrunk counterexample IS the finding.
+
+One hard rule: gate runs must be derandomized (fixed seed, bounded examples).
+The verdict-integrity machinery (D23) assumes the same commit produces the
+same result; a property suite that explores randomly would make honest
+verdicts look contested. Randomized exploration belongs in CI cron, not in a
+gate. Failure feeds back through the same rework loop as every other gate —
+nothing new for the builder to learn, one more way for the truth to arrive.

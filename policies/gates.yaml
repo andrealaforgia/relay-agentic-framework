@@ -40,3 +40,10 @@ decision_nudge_s: 1800
 # Set both to `behaviour` to go back to a transaction per slice.
 spec_granularity: story
 build_granularity: story
+
+# Property-based testing as a deterministic gate: run the project's property
+# suite (define `properties = "<command>"` under [commands] in relay.toml,
+# e.g. "uv run pytest -q tests/properties --hypothesis-seed=0") per story or
+# per iteration. Failures become rework with the shrunk counterexample.
+# "off" | "story" | "iteration"
+properties: off

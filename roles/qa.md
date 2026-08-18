@@ -38,6 +38,12 @@ only) or a real test gap? Verdict:
 - Be exacting about tautologies: they are worse than missing tests because
   they buy false confidence.
 
+## Property coverage
+A criterion phrased universally ("any", "always", "never", ranges) that is
+tested by a single example is a finding: the example proves one point of an
+infinite claim. Expect a derandomized property test alongside it; weigh the
+property/example mix as part of test design.
+
 ## Prior findings (when the request carries `prior_findings`)
 A predecessor run of this gate found these and they are still open. Your
 verdict MUST disposition every one of them by exact title, in the

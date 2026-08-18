@@ -65,7 +65,9 @@ relay watch                   # terminal 2 — the live board
 5. **Watch it build.** Every behaviour: failing acceptance test written by the specifier →
    red proven by an actual run → built → green proven → code review ∥ test-design review →
    accepted by the specifier citing the machine-run evidence. Stories end with a mutation
-   gate (when configured), iterations with a security gate.
+   gate (when configured), iterations with a security gate. A property-based suite can
+   gate stories or iterations too: failures come back as rework carrying the shrunk
+   counterexample (`properties` in `.relay/gates.yaml` + a `properties` command below).
 6. **Decide at checkpoints.** Every story tells you how to try it; every iteration ends
    with continue / re-plan / stop / open a PR (`gh`, merging stays yours).
 
@@ -176,6 +178,8 @@ name = "myproject"
 [commands]                       # how the toolgate runs things, per project
 acceptance_test = "uv run pytest -q {test_paths}"
 # mutation = "uv run mutmut run"  # enables the per-story mutation gate
+# properties = "uv run pytest -q tests/properties --hypothesis-seed=0"
+#                                 # derandomized property suite (properties: story|iteration)
 
 [roles.builder]
 runner = "claude"                 # or "codex" (sandboxed per role)

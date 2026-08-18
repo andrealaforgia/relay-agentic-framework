@@ -401,8 +401,12 @@ class Dispatcher:
         for story in state.stories.values():
             if story.escalated:
                 continue
-            if story.mutation_run_id:
-                run = state.runs.get(story.mutation_run_id)
+            for run_attr, kind in (("mutation_run_id", "mutation"),
+                                   ("properties_run_id", "properties")):
+                rid = getattr(story, run_attr)
+                if not rid:
+                    continue
+                run = state.runs.get(rid)
                 if run is not None and run.exit_code is None and self._overdue(
                     run.since, now_s, self._policy.dispatch_timeout_s
                 ):
@@ -410,7 +414,7 @@ class Dispatcher:
                     run_id = _new_run_id()
                     self._publisher.send(
                         COORDINATOR, "toolgate", "run.requested",
-                        {"run_id": run_id, "kind": "mutation",
+                        {"run_id": run_id, "kind": kind,
                          "commit_sha": self._last_built_commit(behaviours)},
                         story_id=story.id, iteration_id=story.iteration_id,
                     )
@@ -848,6 +852,48 @@ class Dispatcher:
         b.state = BehaviourState.ACCEPTANCE_PENDING
         return 1
 
+    def _advance_properties(
+        self,
+        state: SwarmState,
+        run_id: str | None,
+        remember_run: Callable[[str], None],
+        behaviours: list[Behaviour],
+        int_behaviour_id: str,
+        *,
+        story_id: str | None,
+        iteration_id: str,
+    ) -> tuple[str, int]:
+        """The property suite as a deterministic gate: derandomized run via the
+        toolgate ([commands].properties); exit 0 passes; a failure becomes
+        rework on the integration behaviour with the counterexample attached.
+        Returns (status, published) where status is pass|pending|failed."""
+        if run_id is None:
+            new_id = _new_run_id()
+            last_commit = self._last_built_commit(behaviours)
+            self._publisher.send(
+                COORDINATOR, "toolgate", "run.requested",
+                {"run_id": new_id, "kind": "properties", "commit_sha": last_commit},
+                story_id=story_id, iteration_id=iteration_id, commit_sha=last_commit,
+            )
+            remember_run(new_id)
+            state.runs[new_id] = RunInfo(run_id=new_id, purpose=RunPurpose.PROPERTIES,
+                                         story_id=story_id, since=_now_iso())
+            return "pending", 1
+        run = state.runs.get(run_id)
+        if run is None or run.exit_code is None:
+            return "pending", 0
+        if run.exit_code == 0:
+            return "pass", 0
+        published = self._reopen_with_findings(state, int_behaviour_id, [{
+            "title": "property suite failed — an invariant does not hold",
+            "detail": (f"exit {run.exit_code}; counterexample (shrunk input + seed) in "
+                       f".relay/runs/{run_id}.log — "
+                       + (run.summary[:600] or "see the artifact")),
+            "severity": "major",
+            "source": "coordinator",
+        }])
+        return "failed", published
+
     # ── story completion: behaviours done -> mutation gate -> announce ──────
 
     def _advance_stories(self, state: SwarmState) -> int:
@@ -861,6 +907,16 @@ class Dispatcher:
             if specs and not story.gates_waived:
                 published += self._advance_story_gates(state, story, specs)
                 if not story.gates_passed():
+                    continue
+            if self._policy.properties == "story" and not story.gates_waived:
+                status, count = self._advance_properties(
+                    state, story.properties_run_id,
+                    lambda rid: setattr(story, "properties_run_id", rid),
+                    state.story_behaviours(story.id), story.int_behaviour_id,
+                    story_id=story.id, iteration_id=story.iteration_id,
+                )
+                published += count
+                if status != "pass":
                     continue
             behaviours = state.story_behaviours(story.id)
             how_to_try = state.story_how_to_try(story.id)
@@ -959,6 +1015,16 @@ class Dispatcher:
             if specs and not iteration.gates_waived:
                 published += self._advance_iteration_gates(state, iteration, specs)
                 if not iteration.gates_passed():
+                    continue
+            if self._policy.properties == "iteration" and not iteration.gates_waived:
+                status, count = self._advance_properties(
+                    state, iteration.properties_run_id,
+                    lambda rid: setattr(iteration, "properties_run_id", rid),
+                    state.iteration_behaviours(iteration.id), iteration.int_behaviour_id,
+                    story_id=None, iteration_id=iteration.id,
+                )
+                published += count
+                if status != "pass":
                     continue
             behaviours = state.iteration_behaviours(iteration.id)
             how_to_try = state.how_to_try(iteration.id)

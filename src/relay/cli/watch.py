@@ -392,6 +392,25 @@ def watch(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None
             for _sid, event_text in new_events:
                 feed.append(event_text)
 
-            live.update(Group(_presence(client, swarm), _board(state), *feed))
+            live.update(Group(_presence(client, swarm), _board(state),
+                              _waiting_panel(state), *feed))
             time.sleep(refresh_s)
             n += 1
+
+
+def _waiting_panel(state: SwarmState) -> Text:
+    """The 'is it stuck?' answer, always on screen. OWNER lines glow: when
+    the swarm is waiting on the human, the human should not have to ask."""
+    from relay.coordinator.diagnosis import render
+
+    report = render(state, time.time())
+    if not report:
+        return Text("")
+    text = Text()
+    for i, line in enumerate(report.splitlines()):
+        if i:
+            text.append("\n")
+        style = "bold" if i == 0 else ("bold yellow" if line.startswith("⚠") else "dim")
+        text.append(line, style=style)
+    text.append("\n")
+    return text

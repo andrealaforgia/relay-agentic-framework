@@ -101,6 +101,9 @@ class Coordinator:
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
         if deliveries:
             self.dispatcher.react(self.state)
+        # supervision runs on the clock, not on events: a silent swarm still
+        # nudges open decisions and re-dispatches overdue work
+        self.dispatcher.tick(self.state, time.time())
         self.client.set(
             presence_key(self.swarm, "coordinator", socket.gethostname()),
             json.dumps({"pid": os.getpid(), "status": "coordinating", "since": self._started}),

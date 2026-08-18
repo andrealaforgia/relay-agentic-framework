@@ -49,6 +49,7 @@ class RunInfo:
     behaviour_id: str | None = None
     story_id: str | None = None
     exit_code: int | None = None
+    since: str = ""                      # dispatch ts — deadline supervision
 
 
 @dataclass
@@ -57,6 +58,24 @@ class GateInfo:
     gate: str            # code_review | test_design | mutation | security
     subject_id: str
     verdict: str | None = None  # pass | fail
+    since: str = ""              # dispatch ts — deadline supervision needs it
+    attempt: int = 0             # times this gate was re-dispatched (folded)
+
+
+@dataclass
+class DecisionInfo:
+    """An open escalation: the swarm is waiting on the OWNER. Folded from
+    decision.requested; closed by a decision.made that actually matched.
+    The whole point of tracking these is that 'waiting on a human' must be
+    as diagnosable and as supervised as waiting on any worker."""
+
+    gate_id: str
+    subject_id: str
+    reason: str
+    since: str
+    last_ask: str        # when the Owner was last asked (nudges update this)
+    asks: int = 1
+    closed: bool = False
 
 
 @dataclass
@@ -70,6 +89,12 @@ class Behaviour:
     state: BehaviourState = BehaviourState.PLANNED
     attempt: int = 1
     spec_attempts: int = 0               # spec.requested dispatches (respec-loop cap)
+    state_since: str = ""                # ts of the last state change OR re-dispatch
+    same_state_dispatches: int = 0       # re-dispatches without a state change
+    # the state as of the last FOLDED event — the dispatcher mirrors its own
+    # publishes in memory, so the fold must diff against what the ledger last
+    # said, or every dispatch echo would look like a re-dispatch
+    folded_state: str = ""
     error_reported: str | None = None    # unresolved error.raised detail
     spec_conflict: str | None = None     # an existing test contradicts this
     test_paths: list[str] = field(default_factory=list)
@@ -157,6 +182,11 @@ class SwarmState:
     # integration behaviours a model wrote into the roadmap: skipped on the
     # way in (code makes its own) and reported as a validation error
     roadmap_wrote_integration: list[str] = field(default_factory=list)
+    # every escalation ever asked, by gate_id — open ones are what the swarm
+    # is waiting on the OWNER for; closed ones make duplicates idempotent
+    decisions: dict[str, DecisionInfo] = field(default_factory=dict)
+    # a decision.made arrived that matched nothing open: re-ask immediately
+    decision_mismatch: bool = False
     # last progress.reported announced, as (iteration_id, behaviours_done) — derived
     # from the ledger so a restarted coordinator never re-announces
     last_progress: tuple[str, int] | None = None

@@ -22,6 +22,7 @@ import json
 import os
 import sys
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
 from pathlib import Path
 
 import redis
@@ -33,6 +34,9 @@ from relay.bus.publisher import Publisher
 from relay.contract import ContractValidator, load_contract
 from relay.contract.envelope import Envelope
 from relay.contract.errors import ContractError
+
+if TYPE_CHECKING:
+    from relay.coordinator.model import SwarmState
 
 CONSUMER = "interpreter-native"
 # How long the Stop hook holds the door open when the swarm owes us a reply.
@@ -144,6 +148,42 @@ def _record_session_usage(client: redis.Redis, swarm: str, stream: "object") -> 
     record_usage(state_path, transcript, slice_)
 
 
+def _fold_state(client: redis.Redis, swarm: str) -> "SwarmState":
+    from relay.coordinator.projection import project
+    from relay.ledger.reader import read_all
+
+    return project(env for _sid, env in read_all(client, swarm))
+
+
+def _maybe_publish_decision(
+    client: redis.Redis, publisher: Publisher, swarm: str, prompt: str
+) -> str | None:
+    """`retry <subject>` / `drop <subject>` answering an OPEN escalation."""
+    import re
+
+    match = re.match(r"^\s*(retry|drop)\s+(\S+)\s*$", prompt, re.IGNORECASE)
+    if not match:
+        return None
+    decision, subject = match.group(1).lower(), match.group(2)
+    state = _fold_state(client, swarm)
+    info = next(
+        (d for d in state.decisions.values()
+         if not d.closed and d.subject_id.lower() == subject.lower()),
+        None,
+    )
+    if info is None:
+        return None  # not an open escalation: treat as ordinary feedback
+    try:
+        publisher.send(
+            "owner", "interpreter", "decision.made",
+            {"gate_id": info.gate_id, "subject_id": info.subject_id,
+             "decision": decision, "comment": prompt[:500]},
+        )
+    except ContractError:
+        return None
+    return f"{decision} {info.subject_id}"
+
+
 def _problem_already_stated(client: redis.Redis, swarm: str) -> bool:
     for _sid, env in _scan(client, swarm):
         if env.type == "problem.stated":
@@ -164,8 +204,19 @@ def main() -> int:
                         help="block up to SECONDS for mail before draining")
     parser.add_argument("--hook-stop", action="store_true")
     parser.add_argument("--hook-prompt", action="store_true")
+    parser.add_argument("--stuck", action="store_true",
+                        help="the deterministic 'what is the swarm waiting on' report")
     args = parser.parse_args()
     client = get_client()
+
+    if args.stuck:
+        import time as _time
+
+        from relay.coordinator.diagnosis import render
+
+        report = render(_fold_state(client, args.swarm), _time.time())
+        print(report if report else "(nothing is waiting on anyone — the swarm is idle or done)")
+        return 0
 
     if args.hook_prompt:
         # stdin: Claude Code hook payload; record the owner's words, then
@@ -179,11 +230,21 @@ def main() -> int:
         # synthetic blocks the session injects (<task-notification>, hook output…)
         if prompt and not prompt.startswith("/") and not prompt.startswith("<"):
             publisher = Publisher(client, ContractValidator(load_contract()), args.swarm)
-            type_ = "feedback.given" if _problem_already_stated(client, args.swarm) else "problem.stated"
-            try:
-                publisher.send("owner", "interpreter", type_, {"text": prompt[:4000]})
-            except ContractError:
-                pass  # never break the owner's typing over a record-keeping hiccup
+            # `retry I1.S3.B1` / `drop I1.S3.B1`: the Owner's decision goes on
+            # the ledger LITERALLY, published by this hook — deterministic code.
+            # The one time a human word becomes a machine transition, no model
+            # re-encodes it (the ubi-es freeze was 'drop' arriving as 'retry').
+            decided = _maybe_publish_decision(client, publisher, args.swarm, prompt)
+            if decided:
+                print(f"(decision recorded on the ledger: {decided} — "
+                      f"the coordinator acts on it directly; just confirm to the Owner)")
+            else:
+                type_ = ("feedback.given" if _problem_already_stated(client, args.swarm)
+                         else "problem.stated")
+                try:
+                    publisher.send("owner", "interpreter", type_, {"text": prompt[:4000]})
+                except ContractError:
+                    pass  # never break the owner's typing over a record-keeping hiccup
         rendered = _render(_drain(client, args.swarm), args.swarm)
         if rendered:
             print(rendered)

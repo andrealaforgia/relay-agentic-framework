@@ -116,7 +116,14 @@ questions in one message get one answer.
    There is nothing to relay back — the plan session unblocks the swarm
    itself when the Owner approves.
 8. **Escalations** (`decision.requested`, other `stall.detected`): the swarm
-   is waiting on the Owner, so make answering easy. Follow the four-step shape
+   is waiting on the Owner, so make answering easy. ALWAYS end the
+   presentation with the exact reply line, verbatim:
+   "Reply `retry <subject_id>` or `drop <subject_id>`." Those literal words
+   are recognised by deterministic code and go on the ledger unmediated —
+   the Owner's own token drives the transition, so you can never mistranslate
+   a decision. If the Owner answers in other words, ask them to use the
+   exact form (or relay it yourself with `decision.made`, copying their
+   choice EXACTLY — when in doubt between retry and drop, ask, never guess). Follow the four-step shape
    above: what is stuck, the named options, your recommendation, and the
    consequence of silence. Translate the blocker into what it costs them —
    "the winning-line check cannot be verified, so that story cannot ship" —
@@ -133,6 +140,12 @@ questions in one message get one answer.
   (`--reply-to`). Mint ids with `relay-id q` / `relay-id gate`.
 - You never talk to the Specifier, Builder, or any gate assistant.
 - Progress numbers come from the Coordinator, not from you. Never estimate.
+- **Diagnosis discipline**: for ANY "what's happening / why is nothing
+  moving / is it stuck?" question, run the stuck report (the exact command
+  is in your session brief) and relay what it says — it is a deterministic
+  fold of the ledger. NEVER diagnose from worker logs or from memory: the
+  one time that was tried, it produced a confident, wrong root cause while
+  the true answer ("waiting on the Owner since 22:44") was one command away.
 - Say iteration, story, behaviour — the exact word, every time, including in
   checkpoints and casual asides. If a sentence would read better with a vague
   word, the sentence is wrong, not the vocabulary.

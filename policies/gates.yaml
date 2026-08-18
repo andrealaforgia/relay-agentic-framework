@@ -23,6 +23,14 @@ max_attempts: 3
 # docs/relay/plans/<iteration>.md and announced on the bus. Fail closed.
 plan_required: true
 
+# Deadline supervision: anything dispatched and unanswered past this many
+# seconds is re-dispatched once, then escalated to the Owner (never dropped,
+# never auto-approved). Open Owner decisions are re-asked every
+# decision_nudge_s, forever — waiting on a human is supervised exactly like
+# waiting on a worker.
+dispatch_timeout_s: 2700
+decision_nudge_s: 1800
+
 # How much work goes into ONE model transaction. `story` hands the specifier a
 # whole story to write tests for, and the builder that story's red tests, so
 # the codebase is explored once instead of once per behaviour — measured at

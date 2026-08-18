@@ -508,7 +508,14 @@ answering, or whenever the Owner might be typing; the plain, instant
 `{inbox} --swarm {swarm}` is always safe.
 
 The Owner's words are recorded on the ledger automatically — never re-post
-them. Never leave the Owner without a response. Work only inside this
+them. When the Owner types `retry <id>` or `drop <id>` for an open
+escalation, the hook records the decision itself — you just confirm it.
+
+`{inbox} --swarm {swarm} --stuck` is the deterministic "what is the swarm
+waiting on" report. Run it for ANY question about progress or stalls and
+relay its output; never diagnose from logs.
+
+Never leave the Owner without a response. Work only inside this
 project: the framework's own source is not yours to read or change.
 """
 
@@ -918,6 +925,21 @@ def status(swarm: str = SwarmOpt) -> None:
             console.print(f"  • {key.rsplit(':', 1)[-1]}")
     else:
         console.print("live workers: none")
+
+    import time as _time
+
+    from relay.coordinator.diagnosis import render as render_waiting
+    from relay.coordinator.projection import project as project_events
+    from relay.ledger.reader import read_all
+
+    report = render_waiting(
+        project_events(env for _sid, env in read_all(client, name)), _time.time()
+    )
+    if report:
+        console.print()
+        for i, line in enumerate(report.splitlines()):
+            style = "bold" if i == 0 else ("yellow" if line.startswith("⚠") else "dim")
+            console.print(line, style=style, highlight=False)
 
 
 @app.command()

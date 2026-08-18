@@ -16,6 +16,7 @@ from relay.contract.envelope import Envelope
 from relay.coordinator.model import (
     Behaviour,
     BehaviourState,
+    DecisionInfo,
     GateInfo,
     Iteration,
     RunInfo,
@@ -32,6 +33,15 @@ def project(events: Iterable[Envelope]) -> SwarmState:
     return state
 
 
+# gate.requested is deliberately absent: gates carry their own per-gate
+# attempt counter (folded in _replace_gate) — a behaviour's two initial
+# gates must not read as a re-dispatch of the behaviour
+_DISPATCH_TYPES = frozenset({
+    "spec.requested", "build.requested", "rework.requested",
+    "run.requested", "judgement.requested",
+})
+
+
 def apply(state: SwarmState, env: Envelope) -> SwarmState:
     if env.seq is not None:
         state.last_seq = env.seq
@@ -40,7 +50,31 @@ def apply(state: SwarmState, env: Envelope) -> SwarmState:
     handler = _HANDLERS.get(env.type)
     if handler is not None:
         handler(state, env)
+
+    # deadline bookkeeping, in one place instead of fifteen: a state change
+    # resets the clock; a re-dispatch into the SAME state restarts the clock
+    # and counts (that count is the supervision's escalation trigger).
+    # Diffed against folded_state — what the LEDGER last said — because the
+    # live dispatcher mirrors its publishes in memory, and its own echo must
+    # fold as the first dispatch, not as a re-dispatch (replay and live must
+    # count identically).
+    for bid, b in state.behaviours.items():
+        if str(b.state) != b.folded_state:
+            b.state_since = env.ts
+            b.same_state_dispatches = 0
+        elif env.type in _DISPATCH_TYPES and bid == _dispatch_target(env):
+            b.state_since = env.ts
+            b.same_state_dispatches += 1
+        b.folded_state = str(b.state)
     return state
+
+
+def _dispatch_target(env: Envelope) -> str:
+    bid = env.payload.get("behaviour_id") or env.behaviour_id
+    if bid:
+        return str(bid)
+    subject = str(env.payload.get("subject_id") or "")
+    return subject  # gate.requested on a behaviour carries it here
 
 
 def _kind_of(behaviour_id: str) -> str:
@@ -276,6 +310,22 @@ def _decision_requested(state: SwarmState, env: Envelope) -> None:
     source = env.payload.get("source_event_id")
     if source:
         state.unescalated_errors.pop(str(source), None)
+    gate_id = str(env.payload["gate_id"])
+    existing = state.decisions.get(gate_id)
+    if existing is not None:
+        existing.asks += 1
+        existing.last_ask = env.ts       # a nudge, folded: restarts never re-spam
+        if not existing.since:           # the dispatcher's pre-fold mirror
+            existing.since = env.ts
+            existing.reason = str(env.payload.get("reason", ""))
+    else:
+        state.decisions[gate_id] = DecisionInfo(
+            gate_id=gate_id,
+            subject_id=str(env.payload["subject_id"]),
+            reason=str(env.payload.get("reason", "")),
+            since=env.ts,
+            last_ask=env.ts,
+        )
 
 
 def _run_requested(state: SwarmState, env: Envelope) -> None:
@@ -286,7 +336,8 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
         if story is not None:
             story.mutation_run_id = run_id
             state.runs[run_id] = RunInfo(
-                run_id=run_id, purpose=RunPurpose.MUTATION, story_id=story.id
+                run_id=run_id, purpose=RunPurpose.MUTATION, story_id=story.id,
+                since=env.ts,
             )
         return
     if kind != "acceptance_test":
@@ -305,7 +356,8 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
         b.state = BehaviourState.SATISFIED_PENDING
     else:
         return
-    state.runs[run_id] = RunInfo(run_id=run_id, purpose=purpose, behaviour_id=b.id)
+    state.runs[run_id] = RunInfo(run_id=run_id, purpose=purpose, behaviour_id=b.id,
+                                 since=env.ts)
 
 
 def _run_completed(state: SwarmState, env: Envelope) -> None:
@@ -365,17 +417,31 @@ def _build_requested(state: SwarmState, env: Envelope) -> None:
 def _decision_made(state: SwarmState, env: Envelope) -> None:
     """The Owner's answer to an escalation, which is the way OUT of BLOCKED.
 
-    Without this the coordinator escalates, the Owner answers, and nothing
-    consumes it: a blocked behaviour stays blocked for ever. `retry` puts the
-    behaviour back at the start of its cycle with a fresh attempt budget;
-    `drop` accepts that it will not be delivered in this iteration.
+    Resolution is by gate_id FIRST — the one field the message must carry —
+    because the ubi-es freeze was a decision that arrived without subject_id
+    and evaporated in silence. A decision that matches nothing open raises
+    the mismatch flag so the dispatcher re-asks immediately; a decision for
+    an already-closed escalation is a harmless duplicate. The Owner's own
+    decision.made (published by the chat hook from their literal words) is
+    as authoritative as the interpreter's relay.
     """
-    if env.to_role != "coordinator":
+    if env.to_role != "coordinator" and env.from_role != "owner":
         return
-    subject = str(env.payload.get("subject_id") or env.behaviour_id or "")
+    gate_id = str(env.payload.get("gate_id") or "")
+    info = state.decisions.get(gate_id)
+    if info is not None and info.closed:
+        return                            # duplicate/late answer: idempotent
+    subject = str(
+        env.payload.get("subject_id") or env.behaviour_id
+        or (info.subject_id if info else "")
+    )
     b = state.behaviours.get(subject)
     if b is None or b.state != BehaviourState.BLOCKED:
+        # nothing this could unblock: never let a human decision evaporate
+        state.decision_mismatch = True
         return
+    if info is not None:
+        info.closed = True
     decision = str(env.payload.get("decision"))
     if decision == "retry":
         b.state = BehaviourState.PLANNED
@@ -419,21 +485,37 @@ def _gate_requested(state: SwarmState, env: Envelope) -> None:
     subject_kind = str(env.payload["subject_kind"])
     subject_id = str(env.payload["subject_id"])
     gate_id = str(env.payload["gate_id"])
-    info = GateInfo(gate_id=gate_id, gate=str(env.payload["gate"]), subject_id=subject_id)
+    info = GateInfo(gate_id=gate_id, gate=str(env.payload["gate"]),
+                    subject_id=subject_id, since=env.ts)
     if subject_kind == "behaviour":
         b = state.behaviours.get(subject_id)
         if b is not None:
-            b.pending_gates[gate_id] = info
+            _replace_gate(b.pending_gates, info)
             if b.state == BehaviourState.AT_GREEN:
                 b.state = BehaviourState.GATES_PENDING
     elif subject_kind == "story":
         story = state.stories.get(subject_id)
         if story is not None:
-            story.pending_gates[gate_id] = info
+            _replace_gate(story.pending_gates, info)
     elif subject_kind == "iteration":
         iteration = state.iterations.get(subject_id)
         if iteration is not None:
-            iteration.pending_gates[gate_id] = info
+            _replace_gate(iteration.pending_gates, info)
+
+
+def _replace_gate(pending: dict[str, GateInfo], info: GateInfo) -> None:
+    """A re-dispatched gate supersedes its unanswered predecessor of the same
+    kind — otherwise the dead one blocks 'all gates passed' for ever. An
+    ANSWERED predecessor stays: its verdict already counts."""
+    stale = [g for g in pending.values()
+             if g.gate == info.gate and g.verdict is None and g.gate_id != info.gate_id]
+    for g in stale:
+        del pending[g.gate_id]
+        info.attempt = max(info.attempt, g.attempt + 1)
+    existing = pending.get(info.gate_id)
+    if existing is not None:
+        info.attempt = max(info.attempt, existing.attempt)  # own echo: not a re-dispatch
+    pending[info.gate_id] = info
 
 
 def _gate_verdict(state: SwarmState, env: Envelope) -> None:

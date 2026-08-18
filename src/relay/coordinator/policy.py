@@ -39,6 +39,13 @@ class Policy:
     # plan (docs/relay/plans/<iteration>.md, authored with the Owner in
     # `relay plan`) is committed. Fail closed, like every other gate.
     plan_required: bool = False
+    # Deadline supervision: anything dispatched and unanswered past this is
+    # re-dispatched once, then escalated to the Owner. Waiting states
+    # supervise themselves — a freeze must diagnose itself, not be noticed.
+    dispatch_timeout_s: int = 2700
+    # An open Owner decision is re-asked at this interval, forever: waiting
+    # on a human is supervised exactly like waiting on a worker.
+    decision_nudge_s: int = 1800
 
     @staticmethod
     def load(path: Path) -> "Policy":
@@ -64,4 +71,6 @@ class Policy:
             spec_granularity=str(raw.get("spec_granularity", "behaviour")),
             build_granularity=str(raw.get("build_granularity", "behaviour")),
             plan_required=bool(raw.get("plan_required", False)),
+            dispatch_timeout_s=int(raw.get("dispatch_timeout_s", 2700)),
+            decision_nudge_s=int(raw.get("decision_nudge_s", 1800)),
         )

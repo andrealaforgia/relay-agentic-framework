@@ -16,9 +16,11 @@ from pathlib import Path
 from ulid import ULID
 
 from relay.bus.publisher import Publisher
+from relay.coordinator.diagnosis import STATE_WAITS_ON, ts_epoch
 from relay.coordinator.model import (
     Behaviour,
     BehaviourState,
+    DecisionInfo,
     GateInfo,
     Iteration,
     RunInfo,
@@ -30,6 +32,12 @@ from relay.coordinator.model import (
 from relay.coordinator.policy import GateSpec, Policy
 
 COORDINATOR = "coordinator"
+
+
+def _iso(now_s: float) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(now_s, UTC).isoformat(timespec="seconds")
 
 
 def _now_iso() -> str:
@@ -90,6 +98,7 @@ class Dispatcher:
     def react(self, state: SwarmState) -> int:
         published = self._maybe_request_recon(state)
         published += self._escalate_orphan_errors(state)
+        published += self.reask_after_mismatch(state)
         if not state.roadmap_committed:
             return published
         if not self._roadmap_valid(state):
@@ -113,6 +122,216 @@ class Dispatcher:
         published += self._advance_iterations(state)
         published += self._progress(state)
         return published
+
+    # ── supervision: waiting states police themselves ────────────────────────
+    #
+    # tick() runs on the coordinator's clock, not on events, so a swarm where
+    # nothing arrives still supervises everything in flight. Every action it
+    # takes is an ordinary ledger event, folded back into the projection —
+    # a restart re-derives exactly which nudges already happened and never
+    # spams. Three rules, applied uniformly:
+    #   overdue and never re-dispatched  -> re-dispatch (fresh ids)
+    #   overdue after a re-dispatch      -> escalate to the Owner (never drop)
+    #   an open Owner decision           -> re-asked on its own interval, forever
+
+    def tick(self, state: SwarmState, now_s: float) -> int:
+        if not state.roadmap_committed:
+            return 0
+        published = self._nudge_open_decisions(state, now_s)
+        published += self._supervise_behaviours(state, now_s)
+        published += self._supervise_story_and_iteration_gates(state, now_s)
+        return published
+
+    def _overdue(self, since_iso: str, now_s: float, timeout_s: int) -> bool:
+        return bool(since_iso) and (now_s - ts_epoch(since_iso)) > timeout_s
+
+    def _nudge_open_decisions(self, state: SwarmState, now_s: float) -> int:
+        published = 0
+        for info in state.decisions.values():
+            if info.closed:
+                continue
+            if self._overdue(info.last_ask, now_s, self._policy.decision_nudge_s):
+                self._resend_decision(info, prefix=f"(reminder #{info.asks}) ")
+                info.last_ask = _iso(now_s)   # mirrored when the event folds
+                published += 1
+        return published
+
+    def _resend_decision(self, info: "DecisionInfo", prefix: str = "") -> None:
+        self._publisher.send(
+            COORDINATOR, "interpreter", "decision.requested",
+            {"gate_id": info.gate_id, "subject_id": info.subject_id,
+             "reason": (prefix + info.reason)[:2000]},
+        )
+
+    def reask_after_mismatch(self, state: SwarmState) -> int:
+        """A decision.made matched nothing open: never let a human's answer
+        evaporate — repeat every open ask immediately, with the exact syntax."""
+        if not state.decision_mismatch:
+            return 0
+        state.decision_mismatch = False
+        published = 0
+        for info in state.decisions.values():
+            if not info.closed:
+                self._resend_decision(
+                    info,
+                    prefix=("your last decision matched nothing — reply exactly "
+                            f"`retry {info.subject_id}` or `drop {info.subject_id}`. "),
+                )
+                published += 1
+        return published
+
+    def _supervise_behaviours(self, state: SwarmState, now_s: float) -> int:
+        published = 0
+        timeout = self._policy.dispatch_timeout_s
+        for b in list(state.behaviours.values()):
+            if b.state in TERMINAL_STATES:
+                continue
+            if b.state == BehaviourState.GATES_PENDING:
+                published += self._redispatch_gates(
+                    state, b.pending_gates, "behaviour", b.id, now_s,
+                    commit=b.built_commit, base=b.base_sha,
+                )
+                continue
+            waits_on = STATE_WAITS_ON.get(b.state, "coordinator")
+            if waits_on == "coordinator":
+                continue  # react() owns these; nothing was dispatched to wait for
+            if not self._overdue(b.state_since, now_s, timeout):
+                continue
+            if b.same_state_dispatches >= 1:
+                published += self._escalate_timeout(state, b.id, waits_on, b.state_since)
+                continue
+            published += self._redispatch_behaviour(state, b)
+        return published
+
+    def _redispatch_behaviour(self, state: SwarmState, b: Behaviour) -> int:
+        if b.state == BehaviourState.SPEC_DISPATCHED:
+            return self._dispatch_spec(b)
+        if b.state == BehaviourState.RED_PENDING:
+            return self._request_run(state, b, RunPurpose.RED_VERIFICATION)
+        if b.state == BehaviourState.SATISFIED_PENDING:
+            return self._request_run(state, b, RunPurpose.SATISFIED_CHECK)
+        if b.state == BehaviourState.AT_RUN_PENDING:
+            return self._request_run(state, b, RunPurpose.AT_GREEN)
+        if b.state == BehaviourState.BUILD_DISPATCHED:
+            self._publisher.send(
+                COORDINATOR, "builder", "build.requested",
+                {
+                    "behaviour_id": b.id,
+                    "spec_commit_sha": _require(b.spec_commit, "spec_commit"),
+                    "test_paths": b.test_paths,
+                },
+                behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
+            )
+            return 1
+        if b.state == BehaviourState.ACCEPTANCE_PENDING:
+            return self._request_judgement(state, b)
+        return 0
+
+    def _redispatch_gates(
+        self,
+        state: SwarmState,
+        pending: dict[str, GateInfo],
+        subject_kind: str,
+        subject_id: str,
+        now_s: float,
+        commit: str | None,
+        base: str | None,
+        run_id: str | None = None,
+    ) -> int:
+        published = 0
+        specs = {s.gate: s for s in (*self._policy.per_behaviour,
+                                     *self._policy.per_story, *self._policy.per_iteration)}
+        for g in list(pending.values()):
+            if g.verdict is not None:
+                continue
+            spec = specs.get(g.gate)
+            timeout = spec.timeout_s if spec else self._policy.dispatch_timeout_s
+            if not self._overdue(g.since, now_s, timeout):
+                continue
+            if g.attempt >= 1:
+                published += self._escalate_timeout(
+                    state, subject_id, spec.role if spec else g.gate, g.since)
+                continue
+            gate_id = _new_gate_id()
+            self._publisher.send(
+                COORDINATOR, spec.role if spec else "qa", "gate.requested",
+                {
+                    "gate_id": gate_id, "gate": g.gate,
+                    "subject_kind": subject_kind, "subject_id": subject_id,
+                    "commit_sha": _require(commit, "gate commit"),
+                    "base_sha": _require(base, "gate base"),
+                    **({"run_id": run_id} if run_id else {}),
+                },
+                gate_id=gate_id, commit_sha=commit,
+            )
+            published += 1
+        return published
+
+    def _supervise_story_and_iteration_gates(self, state: SwarmState, now_s: float) -> int:
+        published = 0
+        for story in state.stories.values():
+            if story.escalated:
+                continue
+            if story.mutation_run_id:
+                run = state.runs.get(story.mutation_run_id)
+                if run is not None and run.exit_code is None and self._overdue(
+                    run.since, now_s, self._policy.dispatch_timeout_s
+                ):
+                    behaviours = state.story_behaviours(story.id)
+                    run_id = _new_run_id()
+                    self._publisher.send(
+                        COORDINATOR, "toolgate", "run.requested",
+                        {"run_id": run_id, "kind": "mutation",
+                         "commit_sha": self._last_built_commit(behaviours)},
+                        story_id=story.id, iteration_id=story.iteration_id,
+                    )
+                    published += 1
+            if story.pending_gates:
+                behaviours = state.story_behaviours(story.id)
+                published += self._redispatch_gates(
+                    state, story.pending_gates, "story", story.id, now_s,
+                    commit=self._last_built_commit(behaviours),
+                    base=self._first_base_sha(behaviours),
+                    run_id=story.mutation_run_id,
+                )
+        for iteration in state.iterations.values():
+            if iteration.escalated or not iteration.pending_gates:
+                continue
+            behaviours = state.iteration_behaviours(iteration.id)
+            published += self._redispatch_gates(
+                state, iteration.pending_gates, "iteration", iteration.id, now_s,
+                commit=self._last_built_commit(behaviours),
+                base=self._first_base_sha(behaviours),
+            )
+        return published
+
+    def _escalate_timeout(
+        self, state: SwarmState, subject_id: str, waits_on: str, since: str
+    ) -> int:
+        for info in state.decisions.values():
+            if not info.closed and info.subject_id == subject_id:
+                return 0                      # already on the Owner's desk
+        gate_id = _new_gate_id()
+        # mirror before the fold, so one tick never asks twice for one subject
+        state.decisions[gate_id] = DecisionInfo(
+            gate_id=gate_id, subject_id=subject_id, reason="", since="", last_ask="",
+            asks=0,
+        )
+        self._publisher.send(
+            COORDINATOR, "interpreter", "decision.requested",
+            {
+                "gate_id": gate_id,
+                "subject_id": subject_id,
+                "reason": (
+                    f"{subject_id} has waited on {waits_on} since {since} and one "
+                    f"re-dispatch changed nothing — the worker may be wedged or its "
+                    f"turns failing. Reply exactly `retry {subject_id}` (fresh attempt "
+                    f"budget) or `drop {subject_id}`; check `relay tail {waits_on}` "
+                    f"for the underlying failure."
+                ),
+            },
+        )
+        return 1
 
     # ── plan mode: no behaviour without an Owner-approved change plan ────────
 

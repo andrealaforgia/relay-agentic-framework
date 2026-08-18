@@ -91,9 +91,14 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
                 detail="awaiting change plan — run `relay plan`",
             ))
 
-    # 3. in-flight work, by who owes the next move
+    # 3. in-flight work, by who owes the next move. PLANNED is queue, not
+    # stuckness, and future iterations aren't even queue yet — reporting
+    # either as 'waiting' would bury the real signal in noise.
     for b in state.behaviours.values():
-        if b.state in (BehaviourState.DONE, BehaviourState.BLOCKED):
+        if b.state in (BehaviourState.DONE, BehaviourState.BLOCKED, BehaviourState.PLANNED):
+            continue
+        iteration = state.iterations.get(b.iteration_id)
+        if iteration is None or not iteration.started or iteration.aborted:
             continue
         role = STATE_WAITS_ON.get(b.state, "coordinator")
         if b.state == BehaviourState.GATES_PENDING:

@@ -56,7 +56,7 @@ def test_the_summary_reports_rate_warmth_and_cold_starts(client, publisher) -> N
     assert "$1.80" in rendered
     assert "$3.60/h" in rendered          # 1.80 in half an hour
     assert "83%" in rendered              # cache warmth: 400k read vs 80k written
-    assert "1 of 2 cold" in rendered
+    assert "cold starts 1 of 2 turns" in rendered
 
 
 def test_the_rate_is_absent_before_it_means_anything(client, publisher) -> None:

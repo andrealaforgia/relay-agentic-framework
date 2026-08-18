@@ -259,7 +259,9 @@ def _tokens_table(report: UsageReport) -> Table:
     table = Table(show_header=True, header_style="bold")
     table.add_column("role", no_wrap=True)
     table.add_column("model", no_wrap=True)
-    for column in ("turns", "cold", "loops", "written", "read", "out", "cost"):
+    for column in ("model\nturns", "cold\nstarts", "agent\nloops",
+                   "cache write\ntokens", "cache read\ntokens",
+                   "output\ntokens", "cost\nUSD"):
         table.add_column(column, justify="right", no_wrap=True)
 
     for role, row in sorted(report.by_role.items(), key=lambda kv: -float(kv[1]["cost_usd"])):
@@ -297,18 +299,41 @@ def _tokens_summary(report: UsageReport, elapsed_s: float) -> Text:
     warmth = read / (read + written) if (read + written) else 0.0
 
     line = Text()
+    line.append("spend ", style="bright_black")
     line.append(f"${total['cost_usd']:.2f}", style="bold")
     if elapsed_s >= MIN_RATE_WINDOW_S and total["cost_usd"]:
         # a rate needs enough elapsed time to mean anything; before that,
         # showing one would just be a big number that frightens people
-        line.append(f"  (${total['cost_usd'] / elapsed_s * 3600:.2f}/h)", style="bold yellow")
-    line.append(f"  ·  {billed_input_equivalents(total):,.0f} billed input equivalents",
-                style="bright_black")
-    line.append(f"  ·  cache warmth {warmth:.0%}",
-                style="green" if warmth >= 0.8 else "yellow")
-    line.append(f"  ·  {total['fresh_sessions']} of {total['turns']} cold",
-                style="bright_black")
+        line.append("   burn rate ", style="bright_black")
+        line.append(f"${total['cost_usd'] / elapsed_s * 3600:.2f}/hour", style="bold yellow")
+    line.append("   cache warmth ", style="bright_black")
+    line.append(f"{warmth:.0%}", style="green" if warmth >= 0.8 else "yellow")
+    line.append("   cold starts ", style="bright_black")
+    line.append(f"{total['fresh_sessions']} of {total['turns']} turns")
+    line.append("   billed-input equivalent ", style="bright_black")
+    line.append(f"{billed_input_equivalents(total):,.0f} tokens")
     return line
+
+
+def _tokens_legend() -> Text:
+    """Every number on this screen, explained once, quietly."""
+    rows = (
+        ("model turns", "one model invocation per bus message handled"),
+        ("cold starts", "turns with no resumed session: the whole context is re-read at full price"),
+        ("agent loops", "tool-use cycles inside a turn — every loop re-sends the accumulated context"),
+        ("cache write", "new context written to the prompt cache (billed ~1.25x the input rate)"),
+        ("cache read", "context served from cache (billed ~0.1x — this discount is what 'warmth' measures)"),
+        ("output", "tokens the model generated"),
+        ("cost USD", "per-turn estimate from the runner's own usage report, summed"),
+        ("billed-input equivalent", "all input normalised to full-price tokens — compare runs on this"),
+    )
+    legend = Text()
+    for i, (term, meaning) in enumerate(rows):
+        if i:
+            legend.append("\n")
+        legend.append(f"  {term:<24}", style="bright_black bold")
+        legend.append(meaning, style="bright_black")
+    return legend
 
 
 def _usage_line(env: Envelope) -> Text:
@@ -323,7 +348,7 @@ def _usage_line(env: Envelope) -> Text:
     # the currency stays glued to the number; the column aligns around it
     line.append(f"{'$' + format(float(payload.get('cost_usd') or 0.0), '.2f'):>7}  ", style="bold")
     line.append(f"{int(payload.get('agent_turns') or 0):>3} loops  ", style="bright_black")
-    line.append(f"{int(payload.get('cache_read_input_tokens') or 0):>9,} read  ", style="dim")
+    line.append(f"{int(payload.get('cache_read_input_tokens') or 0):>9,} tok from cache  ", style="dim")
     line.append(f"{ref:<12}", style="bright_black")
     line.append(str(payload.get("trigger_type", "")), style="dim")
     if payload.get("fresh_session"):
@@ -357,6 +382,9 @@ def tokens_view(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -
                 _tokens_table(report),
                 _tokens_summary(report, time.monotonic() - started),
                 Text(""),
+                _tokens_legend(),
+                Text(""),
+                Text("last turns (newest at the bottom)", style="bold"),
                 *feed,
             ))
             time.sleep(refresh_s)

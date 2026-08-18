@@ -217,6 +217,40 @@ def test_story_escalation_has_the_same_way_back(client, publisher) -> None:
     assert not story.escalated and story.gates_waived and story.gates_passed()
 
 
+def test_stale_nudge_after_the_answer_does_not_reescalate(client, publisher) -> None:
+    """The ubi-es aftermath: retries applied on replay, then old-runtime
+    nudges folded AFTER the answer re-flagged the iteration for ever."""
+    swarm = _start(client, publisher)
+    gate_id = _escalate_iteration_gate(swarm)
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": gate_id, "subject_id": "I1", "decision": "retry"})
+    # a nudge that crossed the answer in flight (same gate_id, post-closure)
+    publisher.send("coordinator", "interpreter", "decision.requested",
+                   {"gate_id": gate_id, "subject_id": "I1",
+                    "reason": "iteration I1 gate failed: security (reminder)"})
+    swarm.pump()
+    assert not swarm.state.iterations["I1"].escalated  # settled stays settled
+
+
+def test_orphaned_escalation_reasks_itself(client, publisher) -> None:
+    swarm = _start(client, publisher)
+    gate_id = _escalate_iteration_gate(swarm)
+    # simulate the lost-ask shape directly: escalated, but the ask is closed
+    swarm.state.decisions[gate_id].closed = True
+    asks_before = len(swarm.sent("decision.requested"))
+    swarm.dispatcher.tick(swarm.state, time.time())
+    swarm.pump()
+    asks = swarm.sent("decision.requested")
+    assert len(asks) == asks_before + 1
+    assert "ask was lost" in asks[-1].payload["reason"]
+    # and the fresh ask is answerable
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": asks[-1].payload["gate_id"], "subject_id": "I1",
+                    "decision": "drop"})
+    swarm.pump()
+    assert swarm.state.iterations["I1"].gates_waived
+
+
 # ── diagnosis: stuckness is a fold ───────────────────────────────────────────
 
 def test_waiting_on_names_owner_and_roles(client, publisher) -> None:

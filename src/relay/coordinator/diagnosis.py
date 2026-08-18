@@ -73,13 +73,25 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
             ))
     open_subjects = {i.subject_id for i in items}
 
-    # a BLOCKED behaviour with no open ask should be impossible — show it
-    # loudly rather than trust that it is
+    # an escalated subject with no open ask should be impossible — show each
+    # loudly rather than trust that it is (the tick re-asks them)
     for b in state.behaviours.values():
         if b.state == BehaviourState.BLOCKED and b.id not in open_subjects:
             items.append(WaitingItem(
                 subject_id=b.id, waiting_on="OWNER", since=b.state_since,
                 detail="blocked with NO open decision — will be re-asked",
+            ))
+    for story in state.stories.values():
+        if story.escalated and story.id not in open_subjects:
+            items.append(WaitingItem(
+                subject_id=story.id, waiting_on="OWNER", since="",
+                detail="escalated with NO open decision — will be re-asked",
+            ))
+    for iteration in state.iterations.values():
+        if iteration.escalated and iteration.id not in open_subjects:
+            items.append(WaitingItem(
+                subject_id=iteration.id, waiting_on="OWNER", since="",
+                detail="escalated with NO open decision — will be re-asked",
             ))
 
     # 2. plan mode: an approved iteration with no approved change plan

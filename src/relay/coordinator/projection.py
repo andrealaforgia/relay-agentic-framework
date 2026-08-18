@@ -306,12 +306,16 @@ def _error_raised(state: SwarmState, env: Envelope) -> None:
 
 
 def _decision_requested(state: SwarmState, env: Envelope) -> None:
+    gate_id = str(env.payload["gate_id"])
+    existing = state.decisions.get(gate_id)
+    if existing is not None and existing.closed:
+        # a nudge that crossed the answer in flight (or a stale runtime's):
+        # the decision is settled — it must not re-escalate anything
+        return
     _owner_decision_needed(state, env)
     source = env.payload.get("source_event_id")
     if source:
         state.unescalated_errors.pop(str(source), None)
-    gate_id = str(env.payload["gate_id"])
-    existing = state.decisions.get(gate_id)
     if existing is not None:
         existing.asks += 1
         existing.last_ask = env.ts       # a nudge, folded: restarts never re-spam

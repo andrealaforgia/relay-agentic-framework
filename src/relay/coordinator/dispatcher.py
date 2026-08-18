@@ -138,8 +138,38 @@ class Dispatcher:
         if not state.roadmap_committed:
             return 0
         published = self._nudge_open_decisions(state, now_s)
+        published += self._reask_orphan_escalations(state)
         published += self._supervise_behaviours(state, now_s)
         published += self._supervise_story_and_iteration_gates(state, now_s)
+        return published
+
+    def _reask_orphan_escalations(self, state: SwarmState) -> int:
+        """An escalated subject whose ask got lost (crash, crossed answers,
+        an old runtime's stale traffic) re-asks itself: no escalation can
+        exist without an open way back."""
+        open_subjects = {d.subject_id for d in state.decisions.values() if not d.closed}
+        orphans: list[str] = [
+            b.id for b in state.behaviours.values()
+            if b.state == BehaviourState.BLOCKED and b.id not in open_subjects
+        ]
+        orphans += [s.id for s in state.stories.values()
+                    if s.escalated and s.id not in open_subjects]
+        orphans += [i.id for i in state.iterations.values()
+                    if i.escalated and i.id not in open_subjects]
+        published = 0
+        for subject_id in orphans:
+            gate_id = _new_gate_id()
+            state.decisions[gate_id] = DecisionInfo(
+                gate_id=gate_id, subject_id=subject_id, reason="", since="",
+                last_ask="", asks=0,
+            )
+            self._publisher.send(
+                COORDINATOR, "interpreter", "decision.requested",
+                {"gate_id": gate_id, "subject_id": subject_id,
+                 "reason": (f"{subject_id} is escalated but its ask was lost — "
+                            f"reply exactly `retry {subject_id}` or `drop {subject_id}`")},
+            )
+            published += 1
         return published
 
     def _overdue(self, since_iso: str, now_s: float, timeout_s: int) -> bool:

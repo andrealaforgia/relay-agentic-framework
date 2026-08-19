@@ -912,7 +912,7 @@ def _costs_from_ledger(swarm: str, *, by_behaviour: bool) -> None:
 
 @app.command()
 def status(swarm: str = SwarmOpt) -> None:
-    """Ledger depth, DLQ depth, live presence."""
+    """Ledger depth, DLQ depth, live presence, the full behaviour board."""
     name = _swarm(swarm)
     client = get_client()
     entries = client.xlen(ledger_key(name))
@@ -944,9 +944,17 @@ def status(swarm: str = SwarmOpt) -> None:
     from relay.coordinator.projection import project as project_events
     from relay.ledger.reader import read_all
 
-    report = render_waiting(
-        project_events(env for _sid, env in read_all(client, name)), _time.time()
-    )
+    state = project_events(env for _sid, env in read_all(client, name))
+
+    # the FULL board, uncropped — `relay watch` collapses what its terminal
+    # cannot show and points here, so here must genuinely list everything
+    if state.behaviour_order:
+        from relay.cli.watch import _board
+
+        console.print()
+        console.print(_board(state))
+
+    report = render_waiting(state, _time.time())
     if report:
         console.print()
         for i, line in enumerate(report.splitlines()):

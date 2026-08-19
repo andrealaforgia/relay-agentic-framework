@@ -55,6 +55,30 @@ def test_long_board_collapses_done_stories_and_overflow() -> None:
     assert "more not shown" in rendered              # the cut is announced
 
 
+def test_relay_status_lists_the_full_board(client, publisher, tmp_path, monkeypatch) -> None:
+    """The watch board's '… more not shown' row points at `relay status`,
+    so `relay status` must genuinely print every behaviour, uncropped."""
+    from typer.testing import CliRunner
+
+    import relay.cli.main as main_mod
+    from test_coordinator import ROADMAP
+
+    monkeypatch.setenv("RELAY_STATE_ROOT", str(tmp_path))
+    monkeypatch.setattr(main_mod, "get_client", lambda: client)
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
+                   {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
+
+    result = CliRunner().invoke(main_mod.app, ["status", "--swarm", "testswarm"])
+    assert result.exit_code == 0, result.output
+    from relay.coordinator.projection import project as project_events
+    from relay.ledger.reader import read_all
+
+    state = project_events(env for _sid, env in read_all(client, "testswarm"))
+    assert state.behaviour_order  # the fixture really has a board
+    for bid in state.behaviour_order:
+        assert bid in result.output
+
+
 def test_blocked_row_carries_the_reason() -> None:
     state = _state(1, 2)
     state.behaviours["I1.S1.B1"].state = BehaviourState.BLOCKED

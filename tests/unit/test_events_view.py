@@ -53,4 +53,8 @@ def test_system_events_get_their_own_lane(publisher, client, capsys, monkeypatch
     # work stays left of the divider; system-addressed events sit right of it
     assert work.index("problem.stated") < work.index("┃")
     assert system.index("┃") < system.index("usage.reported")
+    # and the lane mirrors the left format: origin → recipient  type  detail
+    right = system[system.index("┃"):]
+    assert right.index("builder") < right.index("→") < right.index("system") \
+        < right.index("usage.reported") < right.index("cost_usd")
     assert any("→ system" in line for line in lines)  # the lane is labeled

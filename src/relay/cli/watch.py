@@ -286,8 +286,8 @@ def _payload_digest(env: Envelope) -> str:
     skip = {"contract_hash", "behaviour_id", "story_id", "iteration_id", "gate_id",
             "output_digest", "artifact_path", "test_paths"}
     priority = ("text", "summary", "reason", "verdict", "decision", "questions",
-                "answers", "exit_code", "how_to_try", "how_to_run", "pr_url",
-                "problem", "detail", "goal")
+                "answers", "exit_code", "cost_usd", "model", "how_to_try",
+                "how_to_run", "pr_url", "problem", "detail", "goal")
     ordered = [k for k in priority if k in env.payload] + sorted(
         k for k in env.payload if k not in skip and k not in priority
     )
@@ -331,7 +331,7 @@ def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
     client = get_client()
     console = Console()
     width = min(console.width or 170, 170)
-    right_w = min(56, max(30, width // 3))
+    right_w = min(64, max(30, width // 3))
     left_w = width - right_w - 1
 
     def _pad_to(text: Text, cols: int) -> Text:
@@ -362,14 +362,19 @@ def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
                                    style="dim red"))
                 continue
             if _is_system(env):
+                # mirrors the left lane: origin → recipient, type, then the
+                # payload digest in its own aligned column
                 line = Text()
                 line.append(f"{env.seq or '':>5}  ", style="bright_black")
                 line.append(f"{_stamp(env)}  ", style="bright_black")
                 _pad_to(line, left_w)
                 line.append("┃ ", style="bright_black")
-                line.append(f"{env.from_role} ",
+                line.append(f"{env.from_role:>10}",
                             style=ROLE_COLORS.get(env.from_role, "white"))
-                line.append(f"{env.type} ", style="bright_black")
+                line.append(" → ")
+                line.append(f"{env.to_role:<7}",
+                            style=ROLE_COLORS.get(env.to_role, "white"))
+                line.append(f"{env.type:<22}", style="bright_black")
                 line.append(_payload_digest(env), style="dim")
                 line.truncate(width)
             else:

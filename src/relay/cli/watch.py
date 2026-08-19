@@ -137,15 +137,28 @@ def _board(state: SwarmState, max_rows: int | None = None) -> Table:
     entries: list[tuple[str, object]] = [("beh", b) for b in behaviours]
 
     if max_rows is not None and len(entries) > max_rows:
-        # finished stories become one ✓ line each
-        done_stories: set[str] = set()
+        # a finished iteration becomes ONE ✓ line; then finished stories
+        # (of unfinished iterations) one line each
+        done_iterations = {
+            iid for iid in {b.iteration_id for b in behaviours}
+            if all(x.state is BehaviourState.DONE
+                   for x in behaviours if x.iteration_id == iid)
+        }
+        emitted: set[str] = set()
         collapsed: list[tuple[str, object]] = []
         for b in behaviours:
+            iid = b.iteration_id
+            if iid in done_iterations:
+                if iid not in emitted:
+                    emitted.add(iid)
+                    n = sum(1 for x in behaviours if x.iteration_id == iid)
+                    collapsed.append(("story", (iid, n)))
+                continue
             sid = b.story_id
             if sid and all(x.state is BehaviourState.DONE
                            for x in behaviours if x.story_id == sid):
-                if sid not in done_stories:
-                    done_stories.add(sid)
+                if sid not in emitted:
+                    emitted.add(sid)
                     n = sum(1 for x in behaviours if x.story_id == sid)
                     collapsed.append(("story", (sid, n)))
                 continue

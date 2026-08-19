@@ -373,6 +373,30 @@ That event is what unblocks the iteration — without it, nothing gets built.
 """
 
 
+def _session_pin_args(marker: Path, new: bool) -> tuple[list[str], bool]:
+    """Per-role conversation pinning. `claude --continue` resumes the most
+    recent conversation in the DIRECTORY — with chat, learn, and plan all
+    living in the project root, `relay plan` would reopen the chat session.
+    Each role gets its own session UUID instead: started with --session-id,
+    resumed with --resume, stored in the role's marker file.
+
+    Returns (claude args, fresh) — fresh means a new conversation starts,
+    so the kickoff prompt must be sent."""
+    import uuid
+
+    existing = marker.read_text().strip() if marker.exists() else ""
+    if existing and not new:
+        try:
+            uuid.UUID(existing)
+            return (["--resume", existing], False)
+        except ValueError:
+            pass  # legacy 'started' marker predates pinning: start pinned
+    session_id = str(uuid.uuid4())
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(session_id)
+    return (["--session-id", session_id], True)
+
+
 def _native_session_exec(
     project: Path,
     role: str,
@@ -390,15 +414,12 @@ def _native_session_exec(
     from relay.cli.entrypoints import env_with_entrypoints
 
     marker = procs.state_root() / swarm_name_ / role / "native-session"
-    marker.parent.mkdir(parents=True, exist_ok=True)
+    session_args, fresh = _session_pin_args(marker, new)
     cmd = ["claude", "--dangerously-skip-permissions",
-           "--append-system-prompt", system_prompt, "--model", model]
-    if marker.exists() and not new:
-        cmd.append("--continue")
-    else:
-        marker.write_text("started")
-        if kickoff:
-            cmd.append(kickoff)
+           "--append-system-prompt", system_prompt, "--model", model,
+           *session_args]
+    if fresh and kickoff:
+        cmd.append(kickoff)
     os.chdir(project)
     os.execvpe("claude", cmd, env_with_entrypoints())
 
@@ -611,26 +632,21 @@ def chat(
     ) + for_role(load_contract(), "interpreter")
 
     marker = procs.state_root() / name / "interpreter" / "native-session"
-    marker.parent.mkdir(parents=True, exist_ok=True)
+    session_args, fresh = _session_pin_args(marker, new)
     cmd = ["claude",
            "--dangerously-skip-permissions",
            "--append-system-prompt", system_prompt,
            # the settings file still matters: it carries the relay-inbox hooks
            "--settings", str(settings_path(project, "interpreter")),
-           "--model", str(interp_cfg.get("model") or "opus")]
-    if marker.exists() and not new:
-        cmd.append("--continue")
-        kickoff = None
-    else:
-        marker.write_text("started")
+           "--model", str(interp_cfg.get("model") or "opus"),
+           *session_args]
+    if fresh:
         # leading '<' marks this as synthetic: the hook must NOT record it as
         # the owner's words, and the model must never block on --wait here
-        kickoff = ("<relay-kickoff> Run `relay-inbox --swarm "
+        cmd.append("<relay-kickoff> Run `relay-inbox --swarm "
                    f"{name}` once (WITHOUT --wait — the Owner is about to type), "
                    "then introduce yourself in two sentences and ask for their "
                    "problem if none is pending.")
-    if kickoff:
-        cmd.append(kickoff)
     os.chdir(project)
     # execvpe carries the relay commands on PATH: the session's hooks and every
     # relay-send the Interpreter runs need them, and a login shell does not

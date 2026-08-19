@@ -55,6 +55,30 @@ def test_long_board_collapses_done_stories_and_overflow() -> None:
     assert "more not shown" in rendered              # the cut is announced
 
 
+def test_a_finished_iteration_is_one_line_not_one_per_story() -> None:
+    state = _state(3, 4)  # I1: S1..S3 × 4
+    state.behaviours["I1.INT"] = Behaviour(
+        id="I1.INT", iteration_id="I1", story_id=None, kind="integration",
+        ac_text="the increment works end to end", state=BehaviourState.DONE,
+    )
+    state.behaviour_order.append("I1.INT")
+    for b in state.behaviours.values():
+        b.state = BehaviourState.DONE
+    # a second, still-active iteration keeps the board over budget
+    for n in (1, 2, 3, 4, 5, 6, 7, 8):
+        bid = f"I2.S1.B{n}"
+        state.behaviours[bid] = Behaviour(
+            id=bid, iteration_id="I2", story_id="I2.S1", kind="ac",
+            ac_text=f"criterion {bid}",
+        )
+        state.behaviour_order.append(bid)
+
+    rendered = _render(_board(state, max_rows=12))
+    assert "all 13 behaviours done" in rendered      # I1 collapsed whole
+    assert "I1.S1 " not in rendered                  # not one line per story
+    assert "I1.INT" not in rendered                  # the INT is inside the ✓
+
+
 def test_relay_status_lists_the_full_board(client, publisher, tmp_path, monkeypatch) -> None:
     """The watch board's '… more not shown' row points at `relay status`,
     so `relay status` must genuinely print every behaviour, uncropped."""

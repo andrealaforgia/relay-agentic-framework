@@ -26,7 +26,7 @@ from relay.bus.client import get_client
 from relay.bus.keys import ledger_key, presence_key
 from relay.cli import procs
 from relay.contract.envelope import Envelope
-from relay.coordinator.model import BehaviourState, SwarmState
+from relay.coordinator.model import Behaviour, BehaviourState, SwarmState
 from relay.coordinator.projection import apply
 from relay.ledger.usage import UsageFold, UsageReport, billed_input_equivalents
 
@@ -113,22 +113,84 @@ def goal_summary(title: str, ac_text: str) -> str:
     return text
 
 
-def _board(state: SwarmState) -> Table:
+def _blocked_why(state: SwarmState, behaviour_id: str) -> str | None:
+    """The reason a blocked behaviour is blocked: the open Owner decision
+    about it (that IS the blockage), else the last recorded failure."""
+    for info in state.decisions.values():
+        if info.subject_id == behaviour_id and not info.closed:
+            return info.reason
+    b = state.behaviours.get(behaviour_id)
+    return b.last_fail_reason if b else None
+
+
+def _board(state: SwarmState, max_rows: int | None = None) -> Table:
+    """The behaviour board. A Live view cannot scroll, so when the roadmap
+    outgrows the terminal (max_rows), finished stories collapse to one line
+    each and the overflow to a count — active work always stays visible."""
     table = Table(show_header=True, header_style="bold", expand=True)
     table.add_column("behaviour", no_wrap=True)
     table.add_column("summary", ratio=3, no_wrap=True)
     table.add_column("state", ratio=1, no_wrap=True)
     table.add_column("attempt", justify="right")
-    for bid in state.behaviour_order:
-        b = state.behaviours[bid]
+
+    behaviours = [state.behaviours[bid] for bid in state.behaviour_order]
+    entries: list[tuple[str, object]] = [("beh", b) for b in behaviours]
+
+    if max_rows is not None and len(entries) > max_rows:
+        # finished stories become one ✓ line each
+        done_stories: set[str] = set()
+        collapsed: list[tuple[str, object]] = []
+        for b in behaviours:
+            sid = b.story_id
+            if sid and all(x.state is BehaviourState.DONE
+                           for x in behaviours if x.story_id == sid):
+                if sid not in done_stories:
+                    done_stories.add(sid)
+                    n = sum(1 for x in behaviours if x.story_id == sid)
+                    collapsed.append(("story", (sid, n)))
+                continue
+            collapsed.append(("beh", b))
+        entries = collapsed
+        if len(entries) > max_rows:
+            # keep every row that is in play; fill what's left in roadmap order
+            budget = max(1, max_rows - 1)
+            keep = [i for i, e in enumerate(entries)
+                    if e[0] == "beh" and isinstance(e[1], Behaviour)
+                    and e[1].state not in (BehaviourState.PLANNED, BehaviourState.DONE)]
+            for i in range(len(entries)):
+                if len(keep) >= budget:
+                    break
+                if i not in keep:
+                    keep.append(i)
+            kept = sorted(set(keep[:budget]))
+            hidden = len(entries) - len(kept)
+            entries = [entries[i] for i in kept]
+            entries.append(("more", hidden))
+
+    for kind, item in entries:
+        if kind == "story":
+            sid, n = cast("tuple[str, int]", item)
+            table.add_row(sid, Text(f"all {n} behaviours done", style="dim"),
+                          Text("✓ done", style="green"), "")
+            continue
+        if kind == "more":
+            table.add_row("…", Text(f"{item} more not shown — `relay status` lists everything",
+                                    style="dim"), "", "")
+            continue
+        b = cast("Behaviour", item)
         icon, colour = STATE_ICONS.get(b.state, ("◌", "yellow"))
         blink = "blink " if b.state not in STATE_ICONS else ""
         summary = goal_summary(b.title, b.ac_text)
         if b.state == BehaviourState.AT_RED and b.last_fail_reason:
             summary = f"⚠ {b.last_fail_reason}"
+        if b.state == BehaviourState.BLOCKED:
+            why = _blocked_why(state, b.id)
+            if why:
+                summary = f"✗ {why}"
         table.add_row(
-            bid,
-            Text(summary, style="dim" if b.state in STATE_ICONS else ""),
+            b.id,
+            Text(summary, style="bold red" if b.state == BehaviourState.BLOCKED
+                 else ("dim" if b.state in STATE_ICONS else "")),
             Text(f"{icon} {b.state}", style=f"{blink}{colour}"),
             str(b.attempt) if b.attempt > 1 else "",
         )
@@ -209,14 +271,16 @@ PLANE_COLORS = {
 }
 
 
-def _event_row(env: Envelope) -> Text:
+def _stamp(env: Envelope) -> str:
     from datetime import datetime
 
     try:
-        stamp = datetime.fromisoformat(env.ts).astimezone().strftime("%m-%d %H:%M:%S")
+        return datetime.fromisoformat(env.ts).astimezone().strftime("%m-%d %H:%M:%S")
     except ValueError:
-        stamp = env.ts[:14]
-    ref = env.behaviour_id or env.gate_id or env.story_id or env.iteration_id or ""
+        return env.ts[:14]
+
+
+def _payload_digest(env: Envelope) -> str:
     # the digest leads with what a human wants to read; ids shown in other
     # columns (or too noisy to matter) are dropped
     skip = {"contract_hash", "behaviour_id", "story_id", "iteration_id", "gate_id",
@@ -233,7 +297,18 @@ def _event_row(env: Envelope) -> Text:
         if k == "commit_sha":
             value = value[:8]
         parts.append(f"{k}={value[:60]}")
-    detail = " · ".join(parts)
+    return " · ".join(parts)
+
+
+def _is_system(env: Envelope) -> bool:
+    """Telemetry and lifecycle: addressed to the system, not to a colleague."""
+    return env.plane == "system" or env.to_role == "system"
+
+
+def _event_row(env: Envelope) -> Text:
+    stamp = _stamp(env)
+    ref = env.behaviour_id or env.gate_id or env.story_id or env.iteration_id or ""
+    detail = _payload_digest(env)
     row = Text()
     row.append(f"{env.seq or '':>5}  ", style="bright_black")
     row.append(f"{stamp}  ", style="bright_black")
@@ -248,15 +323,31 @@ def _event_row(env: Envelope) -> Text:
 
 def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
                 cycles: int | None = None) -> None:
-    """The ledger as a table, from the very first event, then live."""
+    """The ledger as a table, from the very first event, then live.
+
+    Two lanes share the timeline: swarm events (assistants talking to each
+    other) on the left, system-addressed events (telemetry, worker
+    lifecycle) in their own right-hand column so the work reads clean."""
     client = get_client()
     console = Console()
+    width = min(console.width or 170, 170)
+    right_w = min(56, max(30, width // 3))
+    left_w = width - right_w - 1
+
+    def _pad_to(text: Text, cols: int) -> Text:
+        text.truncate(cols)
+        text.append(" " * max(0, cols - len(text.plain)))
+        return text
+
     header = Text()
     header.append(f"{'seq':>5}  {'timestamp':<16}", style="bold")
     header.append(f"{'producer':>12}   {'recipient':<12}", style="bold")
     header.append(f"{'type':<24}{'ref':<12}detail", style="bold")
+    _pad_to(header, left_w)
+    header.append("┃ ", style="bright_black")
+    header.append("→ system (telemetry & lifecycle)", style="bold")
     console.print(header)
-    console.print("─" * min(console.width, 140), style="bright_black")
+    console.print("─" * left_w + "╂" + "─" * right_w, style="bright_black")
 
     seen = 0
     n = 0
@@ -270,7 +361,21 @@ def events_view(swarm: str, follow: bool = True, refresh_s: float = 0.5,
                 console.print(Text("       (entry from another writer — skipped)",
                                    style="dim red"))
                 continue
-            console.print(_event_row(env))
+            if _is_system(env):
+                line = Text()
+                line.append(f"{env.seq or '':>5}  ", style="bright_black")
+                line.append(f"{_stamp(env)}  ", style="bright_black")
+                _pad_to(line, left_w)
+                line.append("┃ ", style="bright_black")
+                line.append(f"{env.from_role} ",
+                            style=ROLE_COLORS.get(env.from_role, "white"))
+                line.append(f"{env.type} ", style="bright_black")
+                line.append(_payload_digest(env), style="dim")
+                line.truncate(width)
+            else:
+                line = _pad_to(_event_row(env), left_w)
+                line.append("┃", style="bright_black")
+            console.print(line)
         seen = len(entries)
         n += 1
         if not follow or (cycles is not None and n >= cycles):
@@ -459,8 +564,17 @@ def watch(swarm: str, refresh_s: float = 0.5, cycles: int | None = None) -> None
             for _sid, event_text in new_events:
                 feed.append(event_text)
 
-            live.update(Group(_presence(client, swarm), _board(state),
-                              _waiting_panel(state), *feed))
+            # a Live view cannot scroll: budget the board to what the
+            # terminal can actually show, and let the feed take the rest
+            term_h = console.size.height or 40
+            presence_tbl = _presence(client, swarm)
+            waiting = _waiting_panel(state)
+            waiting_h = len(waiting.plain.splitlines()) if waiting.plain else 0
+            feed_show = min(len(feed), max(6, term_h // 4))
+            board_budget = max(6, term_h - presence_tbl.row_count
+                               - waiting_h - feed_show - 5)
+            live.update(Group(presence_tbl, _board(state, board_budget),
+                              waiting, *list(feed)[-feed_show:]))
             time.sleep(refresh_s)
             n += 1
 

@@ -58,13 +58,14 @@ def test_a_role_without_triggers_has_none(tmp_path: Path) -> None:
 
 
 def test_the_analyst_thinks_hardest_and_the_gates_do_not(tmp_path: Path) -> None:
-    """Opus where the reading of the problem shapes everything after it;
-    sonnet on the gates, because a cheap gate defers a bug rather than saving
-    money."""
+    """Opus where the reading of the problem shapes everything after it —
+    the analyst, and the Interpreter (the Owner's entire experience of the
+    swarm); sonnet on the gates, because a cheap gate defers a bug rather
+    than saving money."""
     assert ROLE_DEFAULT_MODELS["analyst"] == "opus"
     for gate in ("reviewer", "qa", "security"):
         assert _runner_for(gate, {}, tmp_path).model == "sonnet"   # type: ignore[union-attr]
-    assert _runner_for("interpreter", {}, tmp_path).model == "sonnet"  # type: ignore[union-attr]
+    assert _runner_for("interpreter", {}, tmp_path).model == "opus"  # type: ignore[union-attr]
 
 
 def test_the_worker_picks_the_brain_that_matches_the_work(client, publisher, tmp_path) -> None:

@@ -43,12 +43,12 @@ WRITING_ROLES = ("specifier", "builder")
 
 
 # Opus where a better model changes what you live with: the analyst's reading
-# of the problem shapes every story and behaviour after it, and it is six turns
-# an engagement. The Interpreter talks and assembles roadmaps over a very long
-# context — a lot of tokens at opus rates for work sonnet does well. Gates stay
-# on sonnet deliberately: a cheap gate that waves things through does not save
-# money, it defers a bug.
-ROLE_DEFAULT_MODELS = {"analyst": "opus"}
+# of the problem shapes every story and behaviour after it, and the
+# Interpreter is the Owner's entire experience of the swarm and writes the
+# roadmap (Andrea's call, 2026-08-19 — its long context costs real money at
+# opus rates, and it is worth it). Gates stay on sonnet deliberately: a cheap
+# gate that waves things through does not save money, it defers a bug.
+ROLE_DEFAULT_MODELS = {"analyst": "opus", "interpreter": "opus"}
 # Effort caps the agentic loop, and loop count is what makes a turn expensive:
 # every loop re-sends the whole accumulated context. The builder writes the
 # code and keeps the headroom; judging a behaviour-sized diff does not need it.

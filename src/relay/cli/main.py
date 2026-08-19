@@ -925,6 +925,17 @@ def status(swarm: str = SwarmOpt) -> None:
             console.print(f"  • {key.rsplit(':', 1)[-1]}")
     else:
         console.print("live workers: none")
+    beating = {k.rsplit(":", 1)[-1].split("@")[0] for k in live}
+    from relay.cli import procs as procs_mod
+    for pid_path in sorted(procs_mod.run_dir(name).glob("*.pid")):
+        role = pid_path.stem
+        if role in beating:
+            continue
+        try:
+            alive = procs_mod.is_running(int(pid_path.read_text().strip()))
+        except (ValueError, OSError):
+            alive = False
+        console.print(f"  [red]✗ {role} — {'starting (no heartbeat yet)' if alive else 'DOWN — `relay up` restarts it'}[/red]")
 
     import time as _time
 

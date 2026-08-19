@@ -34,7 +34,7 @@ ROLE_COLORS = {
     "owner": "green", "interpreter": "cyan", "analyst": "blue",
     "specifier": "magenta", "builder": "yellow", "coordinator": "white",
     "toolgate": "bright_black", "reviewer": "red", "qa": "bright_magenta",
-    "security": "bright_red",
+    "security": "bright_red", "curator": "green", "planner": "cyan",
 }
 STATE_ICONS = {
     BehaviourState.DONE: ("✓", "green"),
@@ -136,17 +136,21 @@ def _board(state: SwarmState) -> Table:
 
 
 def _presence(client: redis.Redis, swarm: str) -> Table:
-    """Per-assistant liveness AND live activity — the 'is it stuck?' answer."""
+    """Per-assistant liveness AND live activity — the 'is it stuck?' answer.
+
+    The roster is everything `relay up` started (pidfiles) plus everything
+    heartbeating in Redis (workers on other machines) plus the native
+    sessions. A worker that died must be a red row, never an absent one."""
     table = Table(show_header=False, box=None, pad_edge=False)
     table.add_column("assistant", width=14)
     table.add_column("activity", ratio=1)
+
+    seen: set[str] = set()
     keys = sorted(str(k) for k in client.scan_iter(match=presence_key(swarm, "*", "*")))
-    if not keys:
-        table.add_row(Text("no live workers", style="red"), "")
-        return table
     for key in keys:
         entry = key.rsplit(":", 1)[-1]
         role = entry.split("@")[0]
+        seen.add(role)
         raw = client.get(key)
         status, elapsed = "alive", ""
         try:
@@ -161,6 +165,41 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
             Text(role, style=ROLE_COLORS.get(role, "white")),
             Text(f"{status}{elapsed}", style=style),
         )
+
+    # started on this machine but not heartbeating: booting, or dead
+    for pid_path in sorted(procs.run_dir(swarm).glob("*.pid")):
+        role = pid_path.stem
+        if role in seen:
+            continue
+        seen.add(role)
+        try:
+            alive = procs.is_running(int(pid_path.read_text().strip()))
+        except (ValueError, OSError):
+            alive = False
+        table.add_row(
+            Text(role, style=ROLE_COLORS.get(role, "white")),
+            Text("starting…", style="yellow") if alive
+            else Text("DOWN — `relay up` restarts it", style="bold red"),
+        )
+    if not seen:
+        table.add_row(Text("no live workers", style="red"), Text("`relay up` starts them", style="bright_black"))
+
+    # the native sessions have no worker process: their liveness is "does a
+    # session exist, and is mail piling up for it?"
+    from relay.cli.wake import undelivered_for_interpreter
+
+    root = procs.state_root() / swarm
+    if (root / "interpreter" / "native-session").exists():
+        pending = len(undelivered_for_interpreter(client, swarm))
+        detail = (Text(f"{pending} event(s) waiting — open `relay chat`", style="bold yellow")
+                  if pending else Text("session (relay chat)", style="bright_black"))
+    else:
+        detail = Text("no session yet — open `relay chat`", style="bright_black")
+    table.add_row(Text("interpreter", style=ROLE_COLORS["interpreter"]), detail)
+    for role, cmd in (("curator", "relay learn"), ("planner", "relay plan")):
+        if (root / role / "native-session").exists():
+            table.add_row(Text(role, style=ROLE_COLORS.get(role, "white")),
+                          Text(f"session ({cmd})", style="bright_black"))
     return table
 
 

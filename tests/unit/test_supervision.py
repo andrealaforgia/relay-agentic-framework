@@ -287,3 +287,65 @@ def test_waiting_on_names_owner_and_roles(client, publisher) -> None:
     swarm.pump()
     assert all(i.subject_id != "I1.S1.B1" or i.waiting_on != "OWNER"
                for i in waiting_on(swarm.state))
+
+
+def test_an_iteration_property_run_is_supervised_like_a_storys(
+    client, publisher
+) -> None:
+    """_advance_iterations waits on `pending` forever, so a property run that
+    never answers is an iteration that can never finish — and nothing says so.
+    Story runs were supervised; the iteration's own was not.
+
+    It only started to matter once workers began discarding rescued
+    run.requested copies, which leaves the re-dispatch as the only one left.
+    """
+    from relay.coordinator.model import RunInfo, RunPurpose
+
+    swarm = _start(client, publisher)
+    # a property suite only exists once something was built for it to check
+    swarm.state.behaviours["I1.S1.B1"].built_commit = SHA
+    iteration = swarm.state.iterations["I1"]
+    iteration.properties_run_id = "run-01M08YB2FF5X6KHTRJXR948MDV"
+    swarm.state.runs[iteration.properties_run_id] = RunInfo(
+        run_id=iteration.properties_run_id, purpose=RunPurpose.PROPERTIES,
+        since="2020-01-01T00:00:00+00:00",
+    )
+
+    swarm.dispatcher.tick(swarm.state, time.time())
+    resent = [r for r in swarm.sent("run.requested")
+              if r.payload["kind"] == "properties"]
+    assert resent, "an unanswered property suite must be re-dispatched"
+
+
+def test_a_re_dispatched_run_survives_a_cold_replay(client, publisher) -> None:
+    """State is a fold over the ledger (D3) or it is nothing.
+
+    _run_requested registered a RunInfo only from SPEC_READY / BUILT /
+    SATISFIED_CLAIMED — but the supervisor re-dispatches when the behaviour is
+    already *_PENDING, so the fold dropped it. The live coordinator had the
+    run (mirrored in _request_run) and a restarted one did not, and
+    _run_completed then ignores the answer when it finally arrives: the board
+    diverges from the ledger it is supposed to be derived from.
+    """
+    from relay.coordinator.model import SwarmState
+    from relay.coordinator.projection import apply
+    from relay.ledger.reader import read_all
+
+    swarm = _start(client, publisher)
+    publisher.send("specifier", "coordinator", "spec.written",
+                   {"behaviour_id": "I1.S1.B1", "test_paths": ["tests/b1.py"],
+                    "commit_sha": SHA, "touches": ["src/x.py"]})
+    swarm.pump()
+    first = swarm.sent("run.requested")[-1]
+    assert swarm.behaviour("I1.S1.B1").state == BehaviourState.RED_PENDING
+
+    swarm.dispatcher.tick(swarm.state, ts_epoch(first.ts) + 2701)
+    resent = swarm.sent("run.requested")[-1]
+    assert resent.payload["run_id"] != first.payload["run_id"], "it was re-dispatched"
+
+    cold = SwarmState()
+    for _sid, env in read_all(client, "testswarm"):
+        apply(cold, env)
+    assert resent.payload["run_id"] in cold.runs, \
+        "a restarted coordinator must know about the run it is waiting on"
+    assert cold.behaviours["I1.S1.B1"].state == swarm.behaviour("I1.S1.B1").state

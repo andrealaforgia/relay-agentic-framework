@@ -314,6 +314,17 @@ class Dispatcher:
         for b in list(state.behaviours.values()):
             if b.state in TERMINAL_STATES:
                 continue
+            if str(b.state) != b.folded_state:
+                # react() mirrored a dispatch it has not read back yet, and the
+                # clock is only stamped when the echo folds. Supervising now
+                # reads the PREVIOUS state's timestamp as this state's age: a
+                # behaviour that sat PLANNED since the roadmap landed looks
+                # hours overdue the instant its spec goes out, and tick() —
+                # which runs right after react(), before the echo — re-sends
+                # it. That is 22 of this ledger's 110 spec.requested, one
+                # duplicated specifier turn each. Supervision is about what
+                # the ledger says; wait the millisecond for it to say it.
+                continue
             if b.state == BehaviourState.GATES_PENDING:
                 published += self._redispatch_gates(
                     state, b.pending_gates, "behaviour", b.id, now_s,
@@ -322,7 +333,10 @@ class Dispatcher:
                 continue
             waits_on = STATE_WAITS_ON.get(b.state, "coordinator")
             if waits_on == "coordinator":
-                continue  # react() owns these; nothing was dispatched to wait for
+                # react() owns these; nothing was dispatched to wait for. A
+                # coordinator that owes a move and never makes it is therefore
+                # still unsupervised — see docs/DECISIONS.md.
+                continue
             if not self._overdue(b.state_since, now_s, timeout):
                 continue
             if b.same_state_dispatches >= 1:
@@ -428,7 +442,29 @@ class Dispatcher:
                     run_id=story.mutation_run_id,
                 )
         for iteration in state.iterations.values():
-            if iteration.escalated or not iteration.pending_gates:
+            if iteration.escalated:
+                continue
+            # an iteration's property suite is supervised exactly like a
+            # story's. It was not, and _advance_iterations then waits on
+            # `pending` forever: with `properties: iteration` a run that never
+            # answers is an iteration that can never finish, and nothing says
+            # so. The gap only showed once workers began discarding rescued
+            # run.requested copies, which left the re-dispatch as the sole
+            # surviving one.
+            rid = iteration.properties_run_id
+            run = state.runs.get(rid) if rid else None
+            if run is not None and run.exit_code is None and self._overdue(
+                run.since, now_s, self._policy.dispatch_timeout_s
+            ):
+                behaviours = state.iteration_behaviours(iteration.id)
+                self._publisher.send(
+                    COORDINATOR, "toolgate", "run.requested",
+                    {"run_id": _new_run_id(), "kind": "properties",
+                     "commit_sha": self._last_built_commit(behaviours)},
+                    iteration_id=iteration.id,
+                )
+                published += 1
+            if not iteration.pending_gates:
                 continue
             behaviours = state.iteration_behaviours(iteration.id)
             published += self._redispatch_gates(
@@ -555,12 +591,39 @@ class Dispatcher:
         for b in in_flight:
             published += self._advance_one(state, b)
 
-        if len(in_flight) < self._policy.wip_limit:
-            for b in behaviours:
-                if b.state == BehaviourState.PLANNED:
-                    published += self._dispatch_spec(b, state)
-                    break
+        # finishing a unit already in flight always beats opening a new one:
+        # it is what lets a desynchronized story converge (see _wip_unit)
+        planned = [b for b in behaviours if b.state == BehaviourState.PLANNED]
+        open_units = {self._wip_unit(b) for b in in_flight}
+        rejoin = next((b for b in planned if self._wip_unit(b) in open_units), None)
+        if rejoin is not None:
+            published += self._dispatch_spec(rejoin, state)
+        elif planned and len(open_units) < self._policy.wip_limit:
+            published += self._dispatch_spec(planned[0], state)
         return published
+
+    def _story_is_the_unit(self) -> bool:
+        return "story" in (self._policy.spec_granularity, self._policy.build_granularity)
+
+    def _wip_unit(self, b: Behaviour) -> str:
+        """What `wip_limit` counts: the unit of work, not the behaviour.
+
+        At story granularity a story of four behaviours occupies the pipeline
+        as ONE thing, for either reason and not only the first: `story` spec
+        granularity sends the whole story out in one batch, so all four enter
+        flight together; `story` build granularity makes the build wait for
+        all four to go red (_build_batch). Either alone is enough, which is
+        why _story_is_the_unit accepts either. Counting behaviours there makes
+        wip_limit 1 unsatisfiable for any story bigger than a single slice,
+        and it deadlocks outright the moment a story desynchronizes: an Owner
+        `retry` re-plans one sibling, the others go red and wait for it in
+        _build_batch, and it can never be dispatched because they already fill
+        the budget. Rejoining a story that is already in flight opens no new
+        front, so it is always allowed.
+        """
+        if self._story_is_the_unit() and b.story_id:
+            return b.story_id
+        return b.id
 
     def _spec_batch(self, state: SwarmState, b: Behaviour) -> list[Behaviour]:
         """The behaviours this one request covers.

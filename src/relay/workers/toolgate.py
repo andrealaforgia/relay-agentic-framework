@@ -18,7 +18,7 @@ import redis
 
 from relay.contract.envelope import Envelope
 from relay.gitops import branch as gitops
-from relay.workers.base import Worker
+from relay.workers.base import CLAIM_STALE_AFTER_S, Worker
 
 DEFAULT_COMMANDS = {
     "acceptance_test": "python3 -m pytest -q {test_paths}",
@@ -34,8 +34,9 @@ class Toolgate(Worker):
         project: Path,
         commands: dict[str, str] | None = None,
         client: redis.Redis | None = None,
+        stale_after_s: float = CLAIM_STALE_AFTER_S,
     ) -> None:
-        super().__init__(swarm, "toolgate", client=client)
+        super().__init__(swarm, "toolgate", client=client, stale_after_s=stale_after_s)
         self.project = project
         self.commands = {**DEFAULT_COMMANDS, **(commands or {})}
         self.artifacts_dir = project / ".relay" / "runs"

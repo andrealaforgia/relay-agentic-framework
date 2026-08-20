@@ -16,7 +16,7 @@ import redis
 from relay.contract.envelope import Envelope
 from relay.contract.errors import ContractError
 from relay.contract.validator import ContractValidator
-from relay.ledger.reader import read_all_raw
+from relay.ledger.reader import read_all, read_all_raw
 
 
 @dataclass
@@ -37,11 +37,41 @@ class AuditReport:
         return not self.findings
 
 
+def _at(stream_id: str) -> tuple[int, int]:
+    """A stream id as (ms, seq) so it can be ordered. Comparing the strings
+    would put `…-10` before `…-2`."""
+    ms, _, seq = stream_id.partition("-")
+    try:
+        return int(ms), int(seq or 0)
+    except ValueError:
+        return 0, 0
+
+
 def audit_ledger(client: redis.Redis, validator: ContractValidator, swarm: str) -> AuditReport:
     report = AuditReport()
     expected_seq = 1
     seen_event_ids: set[str] = set()
-    contract_hashes_upgraded: set[str] = {validator.contract.contract_hash}
+    # A contract.upgraded event names the hash it replaced — but history is
+    # written BEFORE the upgrade, so learning that only on reaching the event
+    # flags every entry that precedes it, which is all of them. That made the
+    # declaration inert: bumping the contract turned a clean ledger into one
+    # finding per event. Collect the declarations in their own pass first;
+    # reading is side-effect-free, so a second scan costs nothing but time.
+    # ...and only for the entries that PRECEDE it. A declaration says "what
+    # came before me was written under the old contract", not "this hash is
+    # fine forever": a straggler process still writing the old hash an hour
+    # later is exactly the drift the audit exists to report, and friend-
+    # positions really did run two contracts side by side on its first day.
+    superseded_until: dict[str, tuple[int, int]] = {}
+    for stream_id, declared in read_all(client, swarm):
+        if declared.type == "contract.upgraded":
+            old = str(declared.payload.get("old_hash"))
+            superseded_until[old] = max(superseded_until.get(old, (0, 0)), _at(stream_id))
+    current = validator.contract.contract_hash
+
+    def hash_known(env_hash: str, stream_id: str) -> bool:
+        declared_at = superseded_until.get(env_hash)
+        return env_hash == current or (declared_at is not None and _at(stream_id) <= declared_at)
 
     def finding(env: Envelope, stream_id: str, rule: str, detail: str) -> None:
         report.findings.append(AuditFinding(env.seq, stream_id, rule, detail))
@@ -72,9 +102,7 @@ def audit_ledger(client: redis.Redis, validator: ContractValidator, swarm: str) 
         except ContractError as e:
             finding(env, stream_id, "off_contract", str(e))
 
-        if env.type == "contract.upgraded":
-            contract_hashes_upgraded.add(str(env.payload.get("old_hash")))
-        if env.contract_hash not in contract_hashes_upgraded:
+        if not hash_known(env.contract_hash, stream_id):
             finding(env, stream_id, "contract_drift",
                     f"unknown contract hash {env.contract_hash[:12]}")
 

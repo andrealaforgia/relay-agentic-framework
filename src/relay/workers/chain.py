@@ -24,7 +24,7 @@ from relay.contract import cheatsheet
 from relay.contract.envelope import Envelope
 from relay.runners.base import Runner
 from relay.workers import briefing
-from relay.workers.base import Worker
+from relay.workers.base import CLAIM_STALE_AFTER_S, Worker
 
 MAX_CORRECTIONS = 2
 # One acceptance-suite run is minutes, not seconds, and a builder legitimately
@@ -85,8 +85,9 @@ class ChainWorker(Worker):
         state_dir: Path,
         client: redis.Redis | None = None,
         runners: dict[str, Runner] | None = None,
+        stale_after_s: float = CLAIM_STALE_AFTER_S,
     ) -> None:
-        super().__init__(swarm, role, client=client)
+        super().__init__(swarm, role, client=client, stale_after_s=stale_after_s)
         self.runner = runner
         # a cheaper brain for a lesser job: writing a fresh acceptance test and
         # re-checking a green run are not the same work

@@ -234,7 +234,8 @@
         "off_contract",
         "delivery_cap_exceeded",
         "contract_drift",
-        "unparseable"
+        "unparseable",
+        "superseded"
       ],
       "type": "string"
     }

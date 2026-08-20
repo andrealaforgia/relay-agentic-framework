@@ -11,7 +11,8 @@ import redis
 from relay.bus.keys import dlq_key
 from relay.bus.publisher import Publisher
 
-DLQ_REASONS = ("off_contract", "delivery_cap_exceeded", "contract_drift", "unparseable")
+DLQ_REASONS = ("off_contract", "delivery_cap_exceeded", "contract_drift",
+               "unparseable", "superseded")
 
 
 def route_to_dlq(

@@ -98,6 +98,7 @@ def test_toolgate_unknown_sha_fails_loudly(client, publisher, project: Path) -> 
     (completion,) = _completions(client)
     assert completion.payload["exit_code"] == 127
     assert "not present" in completion.payload["summary"]
+    assert completion.payload["fault"] == "missing_commit"
 
 
 ROADMAP = {
@@ -144,3 +145,103 @@ def test_coordinator_cold_restart_is_exact(client, publisher, project: Path) -> 
     ]
     assert dispatched_after == dispatched_before  # replay produced zero new dispatches
     assert second.state.behaviours["I1.S1.B1"].state == BehaviourState.SPEC_DISPATCHED
+
+
+# ── infrastructure faults: the toolgate says whether the command ran ─────────
+
+
+def test_toolgate_flags_a_command_that_cannot_run(client, publisher, project: Path) -> None:
+    """The whole incident in one test: a non-zero exit that says nothing about
+    the code must be labelled as such on the ledger."""
+    red_sha = _commit_failing_test(project)
+    gate = Toolgate("testswarm", project,
+                    commands={"acceptance_test": "definitely-not-a-real-binary -q"},
+                    client=client)
+    _run_request(publisher, "run-01J5AB3CDEF4GH5JK6MN7PQ8R4", red_sha)
+    gate.run_forever(block_ms=1, max_cycles=1)
+    (completion,) = _completions(client)
+    assert completion.payload["exit_code"] != 0
+    assert completion.payload["fault"] == "not_executable"
+
+
+def test_toolgate_flags_a_launcher_that_could_not_spawn(client, publisher, project: Path) -> None:
+    """`uv run pytest` exits 2, not 127 — the exit code alone never catches it."""
+    red_sha = _commit_failing_test(project)
+    spawn_failure = (
+        "printf 'error: Failed to spawn: `pytest`\\n"
+        "  Caused by: No such file or directory (os error 2)\\n' >&2; exit 2"
+    )
+    gate = Toolgate("testswarm", project, commands={"acceptance_test": spawn_failure},
+                    client=client)
+    _run_request(publisher, "run-01J5AB3CDEF4GH5JK6MN7PQ8R5", red_sha)
+    gate.run_forever(block_ms=1, max_cycles=1)
+    (completion,) = _completions(client)
+    assert completion.payload["fault"] == "not_executable"
+
+
+def test_toolgate_never_flags_a_genuinely_failing_test(client, publisher, project: Path) -> None:
+    red_sha = _commit_failing_test(project)
+    gate = Toolgate("testswarm", project, commands={"acceptance_test": PYTEST_CMD}, client=client)
+    _run_request(publisher, "run-01J5AB3CDEF4GH5JK6MN7PQ8R6", red_sha)
+    gate.run_forever(block_ms=1, max_cycles=1)
+    (completion,) = _completions(client)
+    assert completion.payload["exit_code"] != 0
+    assert "fault" not in completion.payload      # a real red is real evidence
+
+
+def test_toolgate_has_no_opinion_about_the_stack(client, publisher, project: Path) -> None:
+    """No configured command means no run — never somebody else's test runner."""
+    red_sha = _commit_failing_test(project)
+    gate = Toolgate("testswarm", project, client=client)      # nothing configured
+    _run_request(publisher, "run-01J5AB3CDEF4GH5JK6MN7PQ8R7", red_sha)
+    gate.run_forever(block_ms=1, max_cycles=1)
+    (completion,) = _completions(client)
+    assert completion.payload["fault"] == "no_command"
+    assert "no command configured" in completion.payload["summary"]
+
+
+def test_toolgate_prefers_the_command_on_the_work_item(client, publisher, project: Path) -> None:
+    """The plan's command travels with the run; the worker's own config is only
+    a fallback, so a stale process cannot outvote the approved plan."""
+    red_sha = _commit_failing_test(project)
+    gate = Toolgate("testswarm", project,
+                    commands={"acceptance_test": "exit 3"}, client=client)
+    publisher.send(
+        "coordinator", "toolgate", "run.requested",
+        {"run_id": "run-01J5AB3CDEF4GH5JK6MN7PQ8R8", "kind": "acceptance_test",
+         "commit_sha": red_sha, "command": "exit 7", "behaviour_id": "I1.S1.B1"},
+        behaviour_id="I1.S1.B1", commit_sha=red_sha,
+    )
+    gate.run_forever(block_ms=1, max_cycles=1)
+    (completion,) = _completions(client)
+    assert completion.payload["exit_code"] == 7
+
+
+# ── the framework has no default stack ──────────────────────────────────────
+
+
+def test_relay_init_names_no_test_runner(project: Path) -> None:
+    """A project is initialized before anyone knows what it is written in, so
+    init must not guess. It once wrote `uv run pytest` into every project."""
+    import tomllib
+
+    from relay.cli.main import _initialize
+
+    _initialize(project, "testswarm", "")
+    text = (project / ".relay" / "relay.toml").read_text()
+    config = tomllib.loads(text)                    # still valid TOML
+    assert config.get("commands", {}) == {}         # nothing chosen for you
+    assert "pytest" not in text and "cargo" not in text.split("# e.g.")[0]
+
+
+def test_doctor_flags_a_toolchain_the_toolgate_cannot_reach(
+    project: Path, monkeypatch, capsys
+) -> None:
+    """The check that turns 'cargo is not on the worker's PATH' into one line
+    at the start, instead of a run log nobody reads."""
+    from relay.cli.main import _check_toolchain, _initialize
+
+    _initialize(project, "testswarm", "definitely-not-a-real-binary test")
+    monkeypatch.chdir(project)
+    assert _check_toolchain() == 1
+    assert "is not on the toolgate's PATH" in capsys.readouterr().out

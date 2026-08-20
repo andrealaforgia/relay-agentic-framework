@@ -151,7 +151,13 @@ def main() -> int:
     elif args.role == "toolgate":
         commands_raw = config.get("commands")
         commands = commands_raw if isinstance(commands_raw, dict) else {}
-        worker = Toolgate(args.swarm, project, commands=commands)
+        toolgate_cfg = config.get("toolgate")
+        toolgate_cfg = toolgate_cfg if isinstance(toolgate_cfg, dict) else {}
+        worker = Toolgate(
+            args.swarm, project,
+            commands={k: str(v) for k, v in commands.items() if isinstance(v, str)},
+            inherit_login_path=bool(toolgate_cfg.get("login_path", True)),
+        )
     elif args.role in CHAIN_ROLES:
         worker = ChainWorker(
             args.swarm, args.role,

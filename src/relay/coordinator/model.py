@@ -52,6 +52,9 @@ class RunInfo:
     exit_code: int | None = None
     summary: str = ""                    # tail of the run output (findings need it)
     since: str = ""                      # dispatch ts — deadline supervision
+    # set when the command did not run at all: the exit code is then evidence
+    # about the machine, never about the code, and nothing may be read into it
+    fault: str = ""
 
 
 @dataclass
@@ -116,6 +119,10 @@ class Behaviour:
     # them, and which gate failed decides WHO can act on it
     last_fail_gate: str | None = None
     last_findings: list[dict[str, object]] = field(default_factory=list)
+    # an infrastructure fault seen on one of this behaviour's runs, awaiting
+    # escalation. Cleared by the Owner's retry — the toolchain is fixed by a
+    # human, and no number of attempts will make a missing binary appear.
+    infra_fault: str | None = None
 
 
 @dataclass
@@ -164,6 +171,9 @@ class Iteration:
     pr_approved: bool = False           # pr.approved seen
     pr_opened: bool = False             # pr.opened seen
     plan_path: str | None = None        # plan.committed seen (plan mode)
+    # the toolchain the approved change plan binds this iteration to, by run
+    # kind: acceptance_test | suite | mutation | properties
+    commands: dict[str, str] = field(default_factory=dict)
     plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework

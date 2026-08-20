@@ -298,8 +298,9 @@ def _payload_digest(env: Envelope) -> str:
     # columns (or too noisy to matter) are dropped
     skip = {"contract_hash", "behaviour_id", "story_id", "iteration_id", "gate_id",
             "output_digest", "artifact_path", "test_paths"}
+    # `fault` leads `exit_code` on purpose: it changes what the number means
     priority = ("text", "summary", "reason", "verdict", "decision", "questions",
-                "answers", "exit_code", "cost_usd", "model", "how_to_try",
+                "answers", "fault", "exit_code", "cost_usd", "model", "how_to_try",
                 "how_to_run", "pr_url", "problem", "detail", "goal")
     ordered = [k for k in priority if k in env.payload] + sorted(
         k for k in env.payload if k not in skip and k not in priority

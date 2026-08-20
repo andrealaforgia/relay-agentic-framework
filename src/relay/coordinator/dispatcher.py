@@ -98,6 +98,7 @@ class Dispatcher:
     def react(self, state: SwarmState) -> int:
         published = self._maybe_request_recon(state)
         published += self._escalate_orphan_errors(state)
+        published += self._escalate_infra_faults(state)
         published += self.reask_after_mismatch(state)
         published += self._escalate_contested(state)
         published += self._execute_fixes(state)
@@ -415,7 +416,8 @@ class Dispatcher:
                     self._publisher.send(
                         COORDINATOR, "toolgate", "run.requested",
                         {"run_id": run_id, "kind": kind,
-                         "commit_sha": self._last_built_commit(behaviours)},
+                         "commit_sha": self._last_built_commit(behaviours),
+                         **self._command(state, kind, story.iteration_id)},
                         story_id=story.id, iteration_id=story.iteration_id,
                     )
                     published += 1
@@ -500,6 +502,80 @@ class Dispatcher:
             {"commit_sha": self._git.head_sha()},
         )
         state.recon_requested = True
+        return 1
+
+    def _escalate_infra_faults(self, state: SwarmState) -> int:
+        """A run that never ran stops the behaviour and reaches a human.
+
+        Not rework, and not another attempt: no number of retries makes a
+        missing binary appear, and the Owner is the only one who can put it
+        there. The behaviour blocks with the machine named as the cause, so
+        nobody spends an afternoon reading the product code — which is exactly
+        what "acceptance test still failing after build" cost once.
+        """
+        published = 0
+        for b in state.behaviours.values():
+            if not b.infra_fault or b.state == BehaviourState.BLOCKED:
+                continue
+            self._publisher.send(
+                COORDINATOR, "interpreter", "decision.requested",
+                {
+                    "gate_id": _new_gate_id(),
+                    "subject_id": b.id,
+                    "reason": (
+                        f"the acceptance-test command for {b.id} did not run "
+                        f"({b.infra_fault}). This is an environment problem, not a "
+                        f"product one: nothing was proved about the code either way. "
+                        f"Fix the toolchain (or the change plan's commands), then "
+                        f"reply exactly `retry {b.id}` to re-run the cycle, or "
+                        f"`drop {b.id}` to accept it will not ship this iteration"
+                    ),
+                },
+                behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
+            )
+            b.state = BehaviourState.BLOCKED
+            published += 1
+        return published
+
+    def _escalate_run_fault(
+        self,
+        state: SwarmState,
+        run: RunInfo,
+        subject_id: str,
+        *,
+        story_id: str | None,
+        iteration_id: str,
+        what: str,
+    ) -> int:
+        """The story/iteration-scoped twin: a mutation or property run that did
+        not run is not a surviving mutant and not a broken invariant.
+
+        Marks the subject escalated here rather than at the call site, because
+        the advance loops re-enter every react and an escalation that does not
+        latch would re-ask the Owner forever.
+        """
+        subject_story = state.stories.get(subject_id)
+        if subject_story is not None:
+            subject_story.escalated = True
+        subject_iteration = state.iterations.get(subject_id)
+        if subject_iteration is not None:
+            subject_iteration.escalated = True
+        self._publisher.send(
+            COORDINATOR, "interpreter", "decision.requested",
+            {
+                "gate_id": _new_gate_id(),
+                "subject_id": subject_id,
+                "reason": (
+                    f"the {what} command for {subject_id} did not run "
+                    f"({run.fault}: {run.summary[:200] or 'no output'}). This is an "
+                    f"environment problem, not a product one — the gate was never "
+                    f"actually judged. Fix the toolchain, then reply exactly "
+                    f"`retry {subject_id}`, or `drop {subject_id}` to waive the gate "
+                    f"on the record"
+                ),
+            },
+            story_id=story_id, iteration_id=iteration_id,
+        )
         return 1
 
     def _escalate_orphan_errors(self, state: SwarmState) -> int:
@@ -750,6 +826,20 @@ class Dispatcher:
         b.state = BehaviourState.GATES_PENDING
         return published
 
+    def _command(self, state: SwarmState, kind: str, iteration_id: str) -> dict[str, str]:
+        """The command this run kind is bound to by the iteration's approved
+        change plan, ready to splat into the payload.
+
+        Empty when the plan said nothing, which leaves the toolgate to fall
+        back on local config — projects that predate plan-bound toolchains keep
+        working. When the plan DID say, it travels with every run: the ledger
+        then records the exact command behind every exit code, and no worker
+        process can be holding a different one.
+        """
+        iteration = state.iterations.get(iteration_id)
+        command = (iteration.commands.get(kind) if iteration else None) or ""
+        return {"command": command} if command else {}
+
     def _request_run(self, state: SwarmState, b: Behaviour, purpose: RunPurpose) -> int:
         # Red-verification asks "does this test fail where it was introduced?",
         # so it pins to the spec commit. A satisfied claim asks "does the
@@ -772,6 +862,7 @@ class Dispatcher:
                 "commit_sha": _require(commit, "commit"),
                 "test_paths": b.test_paths,
                 "behaviour_id": b.id,
+                **self._command(state, "acceptance_test", b.iteration_id),
             },
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
             commit_sha=commit,
@@ -872,7 +963,8 @@ class Dispatcher:
             last_commit = self._last_built_commit(behaviours)
             self._publisher.send(
                 COORDINATOR, "toolgate", "run.requested",
-                {"run_id": new_id, "kind": "properties", "commit_sha": last_commit},
+                {"run_id": new_id, "kind": "properties", "commit_sha": last_commit,
+                 **self._command(state, "properties", iteration_id)},
                 story_id=story_id, iteration_id=iteration_id, commit_sha=last_commit,
             )
             remember_run(new_id)
@@ -882,6 +974,15 @@ class Dispatcher:
         run = state.runs.get(run_id)
         if run is None or run.exit_code is None:
             return "pending", 0
+        if run.fault:
+            # a property suite that never started is not a broken invariant:
+            # turning it into rework would send a builder hunting a
+            # counterexample that does not exist
+            subject = story_id or iteration_id
+            return "faulted", self._escalate_run_fault(
+                state, run, subject, story_id=story_id, iteration_id=iteration_id,
+                what="property-suite",
+            )
         if run.exit_code == 0:
             return "pass", 0
         published = self._reopen_with_findings(state, int_behaviour_id, [{
@@ -942,7 +1043,8 @@ class Dispatcher:
             run_id = _new_run_id()
             self._publisher.send(
                 COORDINATOR, "toolgate", "run.requested",
-                {"run_id": run_id, "kind": "mutation", "commit_sha": last_commit},
+                {"run_id": run_id, "kind": "mutation", "commit_sha": last_commit,
+                 **self._command(state, "mutation", story.iteration_id)},
                 story_id=story.id, iteration_id=story.iteration_id, commit_sha=last_commit,
             )
             story.mutation_run_id = run_id
@@ -952,6 +1054,13 @@ class Dispatcher:
         run = state.runs.get(story.mutation_run_id)
         if run is None or run.exit_code is None:
             return 0  # waiting on the toolgate
+        if run.fault:
+            # cargo-mutants missing is not a surviving mutant, and qa must never
+            # be handed a run that did not happen to judge
+            return self._escalate_run_fault(
+                state, run, story.id, story_id=story.id,
+                iteration_id=story.iteration_id, what="mutation",
+            )
         if not story.pending_gates:
             published = 0
             for spec in specs:

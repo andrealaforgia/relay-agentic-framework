@@ -8,9 +8,13 @@ current directory. --swarm remains as an explicit override everywhere.
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import shutil
 import subprocess as sp
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import typer
@@ -109,8 +113,24 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         "[swarm]\n"
         f'name = "{swarm}"\n\n'
         "[commands]\n"
-        f'acceptance_test = "{test_command}"\n'
-        '# suite = "uv run pytest -q"\n\n'
+        "# How this project's code is exercised. The TOOLCHAIN IS NOT DECIDED\n"
+        "# HERE: an iteration's approved change plan binds it (plan.committed\n"
+        "# carries `commands`), so it lands on the ledger with a human's\n"
+        "# approval and every run records the exact command behind its exit\n"
+        "# code. These keys are a local fallback for projects with no plan yet\n"
+        "# — and they are read ONCE, when the worker starts, so a swarm that is\n"
+        "# already up will not notice an edit here until it is restarted.\n"
+        "# Nothing is defaulted: an unconfigured run kind is a loud fault, not\n"
+        "# somebody else's test runner.\n"
+        + (f'acceptance_test = "{test_command}"\n' if test_command
+           else '# acceptance_test = "<your test command>"   # e.g. cargo test -q\n')
+        + '# suite = "<your whole-suite command>"\n'
+        "# mutation = \"<your mutation-testing command>\"\n\n"
+        "[toolgate]\n"
+        "# Workers start detached, so they inherit whatever environment the\n"
+        "# launcher had — which is how ~/.cargo/bin can be invisible here while\n"
+        "# being perfectly ordinary in your terminal. Read once, at startup.\n"
+        "# login_path = true\n\n"
         "[ui]\n"
         'terminal = "iterm"   # window app for `relay up --windows`: iterm | terminal\n\n'
         "# every role's model is EXPLICIT — an unset model must never fall back\n"
@@ -152,8 +172,10 @@ def init(
     folder: Path = typer.Argument(Path("."), help="Project directory"),
     swarm: str = SwarmOpt,
     test_command: str = typer.Option(
-        "uv run pytest -q {test_paths}", "--test-command",
-        help="How the toolgate runs acceptance tests (use {test_paths})",
+        "", "--test-command",
+        help=("How the toolgate runs acceptance tests (use {test_paths}). "
+              "Normally left unset: the iteration's approved change plan binds "
+              "the toolchain, and relay has no opinion about your stack."),
     ),
 ) -> None:
     """Prepare a project without starting it (relay up does this automatically)."""
@@ -190,7 +212,7 @@ def up(
         legacy_config.rename(project / ".relay" / "relay.toml")
         console.print("[green]✓[/green] moved relay.toml → .relay/relay.toml (root stays clean)")
     if not has_config(project):
-        _initialize(project, swarm or project.name, "uv run pytest -q {test_paths}")
+        _initialize(project, swarm or project.name, "")
     name = swarm or swarm_name(project)
 
     from relay.bus import groups as groups_mod
@@ -365,8 +387,17 @@ When (and only when) the human explicitly approves the plan: commit
 docs/relay/plans/{iteration}.md, then run
   {send} --swarm {swarm} --from planner --to coordinator \\
     --type plan.committed --iteration {iteration} \\
-    --payload '{{"iteration_id": "{iteration}", "plan_path": "docs/relay/plans/{iteration}.md", "summary": "<one paragraph>", "commit_sha": "<full sha from git rev-parse HEAD>"}}'
+    --payload '{{"iteration_id": "{iteration}", "plan_path": "docs/relay/plans/{iteration}.md", "summary": "<one paragraph>", "commit_sha": "<full sha from git rev-parse HEAD>", "commands": {{"acceptance_test": "<how this project runs its tests>"}}}}'
 That event is what unblocks the iteration — without it, nothing gets built.
+
+`commands` is the toolchain this iteration is exercised with, and relay has
+no default: whatever you put there is what the toolgate runs, on every run,
+and nothing runs if you leave it out. `acceptance_test` is required; add
+`suite`, `mutation` or `properties` where the gate policy uses them. Verify
+each command in the project before you name it, and remember the workers are
+started detached — a binary you can type is not automatically one they can
+find. This belongs in the payload, never in .relay/relay.toml: a toolchain
+recorded there is a decision no gate reads and no restart re-reads.
 
 == The iteration you are planning ==
 {iteration_context}
@@ -405,15 +436,24 @@ def _native_session_exec(
     kickoff: str | None,
     model: str,
     new: bool,
+    session_key: str | None = None,
 ) -> None:
     """Shared exec path for the curator/planner sessions (chat has its own
-    richer version with hooks and the wake proxy)."""
+    richer version with hooks and the wake proxy).
+
+    `session_key` splits the role's pin. The curator learns one codebase, so
+    one conversation per swarm is right. A PLAN IS PER ITERATION: pinning the
+    planner per role meant `relay plan` for I2 resumed the conversation that
+    planned I1, opening on settled decisions about work that already shipped,
+    and skipping the kickoff that names the new iteration.
+    """
     import os
 
     from relay.cli import procs
     from relay.cli.entrypoints import env_with_entrypoints
 
-    marker = procs.state_root() / swarm_name_ / role / "native-session"
+    name = "native-session" + (f"-{session_key}" if session_key else "")
+    marker = procs.state_root() / swarm_name_ / role / name
     session_args, fresh = _session_pin_args(marker, new)
     cmd = ["claude", "--dangerously-skip-permissions",
            "--append-system-prompt", system_prompt, "--model", model,
@@ -501,10 +541,15 @@ def plan(
         id=relay_command("relay-id"),
         iteration_context="\n".join(lines),
     ) + for_role(load_contract(), "planner")
+    verb = ("re-read and revise" if target.plan_path
+            else f"draft docs/relay/plans/{target.id}.md,")
     kickoff = (f"Ground yourself in docs/relay/knowledge/ (if present) and the "
-               f"iteration above, draft docs/relay/plans/{target.id}.md, present "
-               f"it, and refine it with the human until they approve.")
-    _native_session_exec(project_dir, "planner", name, system_prompt, kickoff, "opus", new)
+               f"iteration above, {verb} present it, and refine it with the human "
+               f"until they approve. This session is about {target.id} and nothing "
+               f"else: earlier iterations are settled, and their plans are committed "
+               f"in docs/relay/plans/ if you need to consult one.")
+    _native_session_exec(project_dir, "planner", name, system_prompt, kickoff, "opus",
+                         new, session_key=target.id)
 
 
 NATIVE_SESSION_SUFFIX = """
@@ -1034,7 +1079,66 @@ def doctor(swarm: str = SwarmOpt) -> None:
         console.print(f"[red]✗[/red] ledger audit: {len(report.findings)} findings (run `relay audit`)")
         failures += 1
 
+    failures += _check_toolchain()
     raise typer.Exit(1 if failures else 0)
+
+
+def _leading_program(command: str) -> str:
+    """The program a command starts with, when that is a plain program name.
+
+    Empty for anything the shell resolves for itself — an env prefix, a
+    pipeline, a subshell. Guessing at those would report faults that are not
+    there, and a check that cries wolf gets ignored exactly when it matters.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return ""
+    if not tokens:
+        return ""
+    program = tokens[0]
+    if "=" in program or any(ch in program for ch in "$`*?()|<>&"):
+        return ""
+    return program
+
+
+def _check_toolchain() -> int:
+    """Can the toolgate actually run what it would be asked to run?
+
+    Workers start detached and inherit the launcher's environment, so a tool
+    you can type may be invisible to them. This is the check that turns that
+    into one line at the start instead of a run log nobody reads.
+    """
+    from relay.cli.context import config_path, find_project
+    from relay.workers.faults import login_shell_path, merge_path
+
+    try:
+        project = find_project()
+    except NoProjectError:
+        return 0
+    config = tomllib.loads(config_path(project).read_text())
+    commands_raw = config.get("commands")
+    commands = {k: str(v) for k, v in commands_raw.items()
+                if isinstance(v, str)} if isinstance(commands_raw, dict) else {}
+    if not commands:
+        console.print("[dim]·[/dim] no local commands configured — the iteration's "
+                      "approved change plan binds the toolchain")
+        return 0
+
+    path = os.environ.get("PATH", "")
+    extra = login_shell_path()
+    if extra:
+        path = merge_path(path, extra)
+    failures = 0
+    for kind, command in sorted(commands.items()):
+        program = _leading_program(command)
+        if program and shutil.which(program, path=path) is None:
+            console.print(f"[red]✗[/red] {kind}: `{program}` is not on the toolgate's PATH "
+                          f"— every run of this kind would fault, not fail")
+            failures += 1
+        else:
+            console.print(f"[green]✓[/green] {kind}: {command}")
+    return failures
 
 
 if __name__ == "__main__":

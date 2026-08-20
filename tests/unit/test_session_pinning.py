@@ -48,3 +48,29 @@ def test_legacy_started_marker_starts_pinned(tmp_path: Path) -> None:
     args, fresh = _session_pin_args(marker, new=False)
     assert fresh and args[0] == "--session-id"
     assert uuid.UUID(marker.read_text())
+
+
+def test_planning_a_new_iteration_never_resumes_the_previous_one(tmp_path: Path) -> None:
+    """A plan is per iteration. Pinning the planner per ROLE meant `relay plan`
+    for I2 reopened the conversation that planned I1: settled decisions about
+    shipped work, and no kickoff naming the new iteration."""
+    i1, fresh_i1 = _session_pin_args(tmp_path / "planner" / "native-session-I1", new=False)
+    i2, fresh_i2 = _session_pin_args(tmp_path / "planner" / "native-session-I2", new=False)
+    assert fresh_i1 and fresh_i2          # each iteration opens its own
+    assert i1[1] != i2[1]
+    # and revisiting I1 still lands back in I1's own conversation
+    again, fresh = _session_pin_args(tmp_path / "planner" / "native-session-I1", new=False)
+    assert not fresh and again == ["--resume", i1[1]]
+
+
+def test_the_toolchain_check_does_not_guess_at_shell_snippets() -> None:
+    """A check that cries wolf is ignored exactly when it matters."""
+    from relay.cli.main import _leading_program
+
+    assert _leading_program("cargo test -q") == "cargo"
+    assert _leading_program('uv run pytest -q "a b.py"') == "uv"
+    assert _leading_program("RUSTFLAGS=-D warnings cargo test") == ""   # env prefix
+    assert _leading_program("make test | tee out.log") == "make"        # still resolvable
+    assert _leading_program("$(which pytest) -q") == ""
+    assert _leading_program('unbalanced "quote') == ""
+    assert _leading_program("   ") == ""

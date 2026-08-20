@@ -23,6 +23,7 @@ from relay.coordinator.model import (
     RunPurpose,
     Story,
     SwarmState,
+    TERMINAL_STATES,
 )
 
 
@@ -208,6 +209,10 @@ def _plan_committed(state: SwarmState, env: Envelope) -> None:
     iteration = state.iterations.get(str(env.payload["iteration_id"]))
     if iteration:
         iteration.plan_path = str(env.payload["plan_path"])
+        commands = env.payload.get("commands")
+        if isinstance(commands, dict):
+            # the approved plan decides how this iteration's code is exercised
+            iteration.commands = {str(k): str(v) for k, v in commands.items() if v}
 
 
 def _stall_detected(state: SwarmState, env: Envelope) -> None:
@@ -387,6 +392,16 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
         return
     run.exit_code = int(env.payload["exit_code"])
     run.summary = str(env.payload.get("summary") or "")
+    run.fault = str(env.payload.get("fault") or "")
+    if run.fault:
+        # The command did not run, so this exit code says nothing about the
+        # code. Read red into it and the swarm builds against a test nobody
+        # ever saw fail; read green into it and it ships. It transitions
+        # nothing — the dispatcher escalates it to a human instead.
+        b = state.behaviours.get(run.behaviour_id or "")
+        if b is not None and b.state not in TERMINAL_STATES:
+            b.infra_fault = f"{run.fault}: {run.summary[:400] or '(no output)'}"
+        return
     if run.purpose == RunPurpose.MUTATION:
         return  # evidence only; qa judges via the gate
     b = state.behaviours.get(run.behaviour_id or "")
@@ -503,6 +518,7 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
         b.spec_attempts = 0
         b.pending_gates.clear()
         b.last_fail_reason = None
+        b.infra_fault = None            # the human fixed the toolchain, or said retry anyway
     elif decision == "drop":
         b.state = BehaviourState.DONE       # not delivered, but no longer in the way
         b.last_fail_reason = "dropped by the Owner"

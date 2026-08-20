@@ -223,6 +223,20 @@
   },
   "additionalProperties": false,
   "properties": {
+    "commands": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "acceptance_test",
+          "suite",
+          "mutation",
+          "properties"
+        ]
+      },
+      "type": "object"
+    },
     "commit_sha": {
       "$ref": "#/$defs/GitSha"
     },

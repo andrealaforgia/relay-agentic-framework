@@ -334,6 +334,16 @@ message_types:
         plan_path: { type: string }          # committed in the repo, e.g. docs/relay/plans/I2.md
         summary: { type: string, maxLength: 2000 }
         commit_sha: { $ref: "#/$defs/GitSha" }
+        # How this iteration's code is exercised: the toolchain is a technical
+        # decision, so it is made where every other technical decision is made
+        # — in the change plan the human approved — and it rides the ledger
+        # from there. Not in an untracked config file that no gate reads and
+        # that a running worker only notices if someone restarts it.
+        commands:
+          type: object
+          additionalProperties: { type: string }
+          propertyNames:
+            enum: [acceptance_test, suite, mutation, properties]
 
   stall.detected:
     payload_schema:
@@ -654,6 +664,14 @@ message_types:
         output_digest: { type: string }      # sha256 of captured output
         artifact_path: { type: string }      # where full output is stored
         summary: { type: string, maxLength: 2000 }
+        # THE COMMAND DID NOT RUN. Absent means the exit code is evidence about
+        # the code; present means it is evidence about the machine, and the
+        # coordinator must refuse to read red or green into it. A red
+        # verification once "passed" because `uv run pytest` was missing from a
+        # Rust project — a non-zero exit that proved nothing at all.
+        fault:
+          type: string
+          enum: [not_executable, no_command, missing_commit, timeout]
 
   # ── control ─────────────────────────────────────────────────────────────────
   pause.ordered:

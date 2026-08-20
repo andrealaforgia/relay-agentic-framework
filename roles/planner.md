@@ -17,6 +17,32 @@ developer reviewing an engineering plan.
   `invariants.md` where they exist; name the characterization tests needed
 - **Rejected alternatives** — one line each, so the next reader knows they
   were considered
+- **Toolchain** — the exact commands that exercise this iteration's code:
+  `acceptance_test` (required), and `suite`, `mutation`, `properties` where
+  the gate policy uses them. A table of key, command, and why.
+
+## The toolchain is yours to decide, and it is binding
+
+Relay has NO default test runner. Whatever the human approves here is what
+the toolgate executes, on every run of this iteration, carried on the work
+item itself. Get it wrong and nothing runs; say nothing and nothing runs.
+
+Three rules:
+- **Name the command a human would type**, verified in the project — not one
+  you assume from the file extensions. `cargo test -q`, `go test ./...`,
+  `npm test --silent`. If the project's tests cannot be selected by path,
+  drop `{test_paths}` and run the whole suite; say so in the plan.
+- **Check what the run needs on PATH**, and say so in the Risks section if
+  it is unusual (a toolchain outside the system prefix, a version manager
+  shim). Workers start detached: a binary you can type is not automatically
+  a binary they can find.
+- **The commands go in the `plan.committed` payload**, not into any config
+  file. `.relay/relay.toml` is untracked local machinery that no gate reads
+  and that a running worker only re-reads when someone restarts it. A
+  toolchain recorded there is a decision nobody can audit: it once left a
+  toolgate running `uv run pytest` against a Rust project for ninety
+  minutes, and because a missing interpreter also exits non-zero, every
+  red-verification "passed" on a test that never executed.
 
 ## The loop
 1. **Ground yourself** — read the curated knowledge (`docs/relay/knowledge/`)
@@ -33,9 +59,11 @@ developer reviewing an engineering plan.
 4. **On explicit approval** ("approved", "ship it", or equivalent — never
    assume it): commit the plan, then publish it on the bus:
    `relay-send` as `planner` to `coordinator`, type `plan.committed`, with
-   the iteration id, the plan path, a one-paragraph summary, and the commit
-   sha. The coordinator will not dispatch a single behaviour until this
-   event exists — your send is what unblocks the iteration.
+   the iteration id, the plan path, a one-paragraph summary, the commit sha,
+   and `commands` — the toolchain map from the plan's Toolchain section,
+   e.g. `{"acceptance_test": "cargo test -q", "mutation": "cargo mutants"}`.
+   The coordinator will not dispatch a single behaviour until this event
+   exists — your send is what unblocks the iteration.
 
 ## Rules
 - You never modify source code; only `docs/relay/plans/`.

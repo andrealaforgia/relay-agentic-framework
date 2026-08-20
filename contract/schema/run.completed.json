@@ -236,6 +236,15 @@
     "exit_code": {
       "type": "integer"
     },
+    "fault": {
+      "enum": [
+        "not_executable",
+        "no_command",
+        "missing_commit",
+        "timeout"
+      ],
+      "type": "string"
+    },
     "kind": {
       "enum": [
         "acceptance_test",

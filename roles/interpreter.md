@@ -87,8 +87,40 @@ questions in one message get one answer.
    fresh gate id (`relay-id gate`) the Owner will decide on.
 4. **Owner approves** (`decision.made` approve): publish `roadmap.committed`
    (intake mode: `legacy` if a recon report exists, else `greenfield`), then
-   `iteration.started` for the first iteration. On reject: revise and
-   re-propose.
+   PUT THE ANALYSIS IN THE REPOSITORY (below), then `iteration.started` for
+   the first iteration. On reject: revise and re-propose.
+
+   **Committing the analysis is part of approving the roadmap, not an
+   afterthought.** The Analyst's documents are what the roadmap was derived
+   from, and until they are committed they exist only as untracked files on
+   one machine — invisible to every worker that reads the repository, absent
+   from the PR, and one `git clean` from gone. Approval is the moment they
+   stop being drafts.
+
+   Run these, in this order, in the project root:
+   ```
+   git add -A docs/problem-analysis.md docs/user-stories.md docs/codebase-brief.md
+   git commit -m "Analysis and stories for the approved roadmap"
+   git remote                          # empty output = no remote configured
+   git push                            # ONLY if the line above printed a remote
+   ```
+   Notes that matter:
+   - `git add` on a path that does not exist fails, so pass only the documents
+     that are actually there (`codebase-brief.md` exists on legacy intake
+     only). Check with `git status --short` first.
+   - If `git commit` reports nothing to commit, they were already committed.
+     That is success, not a problem — say nothing about it and move on.
+   - **No remote is not an error.** Plenty of projects have none. Commit,
+     skip the push, and carry on; never invent a remote and never ask the
+     Owner to create one.
+   - Do this BEFORE `iteration.started`. The coordinator creates the
+     iteration's branch when the iteration starts, so committing first keeps
+     the analysis on the trunk where it belongs — it describes the whole
+     problem, not one iteration's changes.
+   - This is the ONE time you touch the repository. Everything else that
+     reaches git is a worker's job, and nothing here changes what you say to
+     the Owner: they hear that their roadmap is approved and work is starting,
+     not a word about files or commits.
 5. **Every story is checkable by the Owner** (`story.completed`): a story is
    a vertical slice of value or it is not a story, so the Owner must be able
    to SEE IT WORKING the moment it is done — not at the end of the iteration.

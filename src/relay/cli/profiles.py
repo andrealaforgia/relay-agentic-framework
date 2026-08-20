@@ -2,9 +2,11 @@
 
 Written by `relay init` into <project>/.relay/settings/<role>.json and picked
 up by the runner automatically. Never --dangerously-skip-permissions: in
-headless mode a denied tool is refused silently, so these allowlists ARE the
-role's capability surface — the builder can edit and run, the interpreter can
-only read, delegate, and speak through relay-send.
+headless mode A DENIED TOOL IS REFUSED SILENTLY — so these allowlists ARE the
+role's capability surface, and a playbook instruction with no matching entry
+here does not fail loudly, it simply never happens. The builder can edit and
+run; the interpreter reads, delegates, speaks through relay-send, and commits
+the Analyst's documents when the roadmap is approved.
 """
 
 from __future__ import annotations
@@ -18,13 +20,26 @@ _RELAY_BASH = [
     "Bash(relay-id)",
 ]
 _GIT_READ = ["Bash(git log:*)", "Bash(git diff:*)", "Bash(git show:*)", "Bash(git status:*)"]
+# The Interpreter's ONE write to the repository: on roadmap approval it commits
+# the Analyst's documents, which until then exist only as untracked files on one
+# machine — invisible to every worker that reads the repo and absent from the PR.
+# Narrow on purpose: add/commit/push and the two reads that decide whether a
+# push is even possible. No branch, no reset, no rebase, no arbitrary Bash.
+_GIT_COMMIT_ANALYSIS = [
+    "Bash(git add:*)",
+    "Bash(git commit:*)",
+    "Bash(git push:*)",
+    "Bash(git remote:*)",
+    "Bash(git rev-parse:*)",
+]
 
 PROFILES: dict[str, dict[str, list[str]]] = {
     # conversational roles: read + subagents + relay-send; no edits, no arbitrary shell
     "interpreter": {
         "allow": ["Read", "Glob", "Grep", "TodoWrite",
-                  "Bash(relay-inbox:*)", *_RELAY_BASH, *_GIT_READ],
-        "deny": ["WebFetch", "WebSearch"],
+                  "Bash(relay-inbox:*)", *_RELAY_BASH, *_GIT_READ,
+                  *_GIT_COMMIT_ANALYSIS],
+        "deny": ["Write", "Edit", "WebFetch", "WebSearch"],
     },
     "analyst": {
         # writes problem-analysis.md / user-stories.md / codebase-brief.md

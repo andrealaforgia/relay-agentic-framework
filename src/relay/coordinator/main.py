@@ -20,7 +20,7 @@ from relay.bus.client import get_client
 from relay.bus.keys import group_name, ledger_key, presence_key
 from relay.bus.publisher import Publisher
 from relay.contract import ContractValidator, load_contract
-from relay.coordinator.dispatcher import Dispatcher, GitHooks
+from relay.coordinator.dispatcher import COORDINATOR, Dispatcher, GitHooks
 from relay.coordinator.model import SwarmState
 from relay.coordinator.policy import Policy
 from relay.coordinator.projection import apply
@@ -72,12 +72,42 @@ class Coordinator:
     def bootstrap(self) -> None:
         """Full replay for state; the consumer group only signals new arrivals."""
         groups.ensure_group(self.client, self.stream, self.group)
+        previous = ""
         for _sid, env in read_all(self.client, self.swarm):
             apply(self.state, env)
+            if env.from_role == COORDINATOR:
+                previous = env.contract_hash
+        self._declare_contract_upgrade(previous)
         # everything replayed is by definition processed: clear our PEL backlog
         for delivery in groups.read_pending(self.client, self.stream, self.group, self.consumer):
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
         self.dispatcher.react(self.state)
+
+    def _declare_contract_upgrade(self, previous: str) -> None:
+        """Say so on the ledger when this process supersedes an older contract.
+
+        `contract.upgraded` is what stops `relay audit` reporting every event
+        written before a bump as an unknown hash — and nothing was emitting
+        it, so the first real bump would have turned a clean ledger into one
+        finding per entry. The coordinator is the right and only writer: it is
+        singular per swarm and has just folded the whole history.
+
+        It compares against the PREVIOUS COORDINATOR's hash, not the ledger's
+        last, for two reasons. `relay up` starts everyone at once, so by the
+        time this scan reaches the end the workers have already announced
+        themselves on the new contract and the transition looks
+        self-declared — measured, and it silently skipped a real bump. And
+        the only upgrade this process can honestly assert is its own: a hash
+        some rogue worker once wrote is drift for the audit to report, not
+        something to whitelist on its behalf.
+        """
+        mine = self.validator.contract.contract_hash
+        if not previous or previous == mine:
+            return
+        self.publisher.send(
+            "coordinator", "system", "contract.upgraded",
+            {"old_hash": previous, "new_hash": mine},
+        )
 
     def stop(self) -> None:
         self._stopping = True

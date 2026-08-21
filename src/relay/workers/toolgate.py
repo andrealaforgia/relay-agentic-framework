@@ -26,7 +26,7 @@ import redis
 from relay.contract.envelope import Envelope
 from relay.gitops import branch as gitops
 from relay.workers import faults
-from relay.workers.base import Worker
+from relay.workers.base import CLAIM_STALE_AFTER_S, Worker
 
 RUN_TIMEOUT_S = 900
 
@@ -38,11 +38,12 @@ class Toolgate(Worker):
         project: Path,
         commands: dict[str, str] | None = None,
         client: redis.Redis | None = None,
+        stale_after_s: float = CLAIM_STALE_AFTER_S,
         *,
         path_extra: str | None = None,
         inherit_login_path: bool = True,
     ) -> None:
-        super().__init__(swarm, "toolgate", client=client)
+        super().__init__(swarm, "toolgate", client=client, stale_after_s=stale_after_s)
         self.project = project
         self.commands = dict(commands or {})
         self.artifacts_dir = project / ".relay" / "runs"

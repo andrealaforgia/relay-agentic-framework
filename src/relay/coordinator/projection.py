@@ -371,13 +371,21 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
     if b is None:
         return
-    if b.state == BehaviourState.SPEC_READY:
+    # The *_PENDING arms are the supervisor re-dispatching a run that never
+    # answered: the behaviour is already there, so the transition is a no-op,
+    # but the RunInfo still has to be registered. It was not — the live
+    # coordinator had it (mirrored in _request_run) and a cold replay did not,
+    # so the two disagreed about the board and _run_completed silently ignored
+    # the answer when it came. State is a fold over the ledger (D3) or it is
+    # nothing, and gates already get this right via _replace_gate.
+    if b.state in (BehaviourState.SPEC_READY, BehaviourState.RED_PENDING):
         purpose = RunPurpose.RED_VERIFICATION
         b.state = BehaviourState.RED_PENDING
-    elif b.state == BehaviourState.BUILT:
+    elif b.state in (BehaviourState.BUILT, BehaviourState.AT_RUN_PENDING):
         purpose = RunPurpose.AT_GREEN
         b.state = BehaviourState.AT_RUN_PENDING
-    elif b.state == BehaviourState.SATISFIED_CLAIMED:
+    elif b.state in (BehaviourState.SATISFIED_CLAIMED,
+                     BehaviourState.SATISFIED_PENDING):
         purpose = RunPurpose.SATISFIED_CHECK
         b.state = BehaviourState.SATISFIED_PENDING
     else:

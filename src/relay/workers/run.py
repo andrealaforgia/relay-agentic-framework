@@ -30,6 +30,29 @@ def resolve_policy_path(project: Path) -> Path | None:
     return None
 
 
+def _stale_after_s(project: Path) -> float:
+    """When a claimed request is old enough to be a duplicate rather than a
+    rescue.
+
+    Discarding one is only safe once the coordinator has certainly re-sent it,
+    so this must clear every deadline the coordinator actually supervises on —
+    not just dispatch_timeout_s. Gates are re-dispatched on their own
+    GateSpec.timeout_s (_redispatch_gates), which the policy file openly
+    invites projects to raise; keying on the wrong one silently inverts the
+    premise and starts discarding gate requests hours before anything re-sends
+    them. The shipped defaults clear it only by coincidence.
+    """
+    from relay.coordinator.policy import Policy
+    from relay.workers.base import CLAIM_STALE_AFTER_S
+
+    path = resolve_policy_path(project)
+    policy = Policy.load(path) if path else Policy()
+    supervised = [policy.dispatch_timeout_s,
+                  *(g.timeout_s for g in (*policy.per_behaviour, *policy.per_story,
+                                          *policy.per_iteration))]
+    return max(CLAIM_STALE_AFTER_S, max(supervised) * 1.5)
+
+
 def _load_config(project: Path) -> dict[str, object]:
     from relay.cli.context import config_path
 
@@ -156,6 +179,7 @@ def main() -> int:
         worker = Toolgate(
             args.swarm, project,
             commands={k: str(v) for k, v in commands.items() if isinstance(v, str)},
+            stale_after_s=_stale_after_s(project),
             inherit_login_path=bool(toolgate_cfg.get("login_path", True)),
         )
     elif args.role in CHAIN_ROLES:
@@ -166,6 +190,7 @@ def main() -> int:
             workspace=project,
             state_dir=state_dir,
             runners=per_trigger_runners(args.role, config, project),
+            stale_after_s=_stale_after_s(project),
         )
     else:
         raise SystemExit(f"unknown role: {args.role}")

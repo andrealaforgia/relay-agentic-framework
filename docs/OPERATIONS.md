@@ -68,6 +68,15 @@ its own clone of the target project, this framework installed
 same role anywhere (same swarm, same env): the newcomer XAUTOCLAIMs the dead
 consumer's pending work and continues. Nothing is reassigned by hand.
 
+One exception, deliberate. A rescued request the coordinator supervises —
+spec, build, run, judgement, gate — is dead-lettered as `superseded` rather
+than run when it is older than the coordinator's own re-dispatch deadline: by
+then the coordinator has re-sent it, and answering the rescued copy is a
+second turn against a board that has moved on. A swarm restarted after a long
+outage will therefore show `superseded` entries in the DLQ for work that was
+re-sent, not lost. `rework.requested` is exempt, because its re-dispatch does
+not carry the findings.
+
 ## The rules that keep operations safe
 
 - No timeout ever auto-approves; human gates never expire (fail closed).

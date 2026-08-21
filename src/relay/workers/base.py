@@ -27,6 +27,46 @@ from relay.runners.base import TurnResult
 DELIVERY_CAP = 5
 PRESENCE_TTL_S = 45
 
+# Every one of these is supervised: the coordinator re-dispatches it when it
+# goes unanswered and escalates when re-dispatching changes nothing. So a copy
+# rescued from a DEAD consumer's PEL long afterwards is not a retry — the
+# retry already happened — it is a second turn against a board that has moved
+# on. friend-positions paid five specifier turns to answer spec.requested
+# messages from seven hours earlier, and one of the answers pushed a finished
+# behaviour back to `planned`. Only the autoclaim path is affected: a worker
+# draining its OWN pending list is replaying work that never started, and
+# that must still run.
+# rework.requested is deliberately absent though it is supervised too: its
+# re-dispatch is a plain build/spec request (_redispatch_behaviour) and does
+# not carry the findings, so discarding the original would lose the only copy
+# of what the gate actually found.
+SUPERVISED_REQUESTS = frozenset({
+    "spec.requested", "build.requested",
+    "run.requested", "judgement.requested", "gate.requested",
+})
+# The premise — "the coordinator has re-dispatched it long since" — only holds
+# while this is comfortably longer than the policy's dispatch_timeout_s, which
+# is project-overridable. run.py derives the real value from that policy; this
+# is the floor, not the answer.
+CLAIM_STALE_AFTER_S = 3600.0
+
+
+def _age_s(ts_iso: str) -> float:
+    """Seconds since an envelope was published; 0 when it cannot be dated —
+    never discard work on the strength of an unreadable clock."""
+    from datetime import UTC, datetime
+
+    try:
+        return (datetime.now(UTC) - datetime.fromisoformat(ts_iso)).total_seconds()
+    except (ValueError, TypeError):
+        # TypeError is the naive-timestamp case: Envelope.ts is an unvalidated
+        # str, so nothing stops one arriving without an offset, and subtracting
+        # a naive datetime from an aware one raises. It would escape _process
+        # and step(), and run_forever catches only RedisError — an undated
+        # envelope would take the worker down, in the one branch that promises
+        # never to discard work over an unreadable clock.
+        return 0.0
+
 
 class Worker:
     """Subclasses implement handle(envelope) -> str | None (result event id).
@@ -35,7 +75,9 @@ class Worker:
     stream) acks the trigger; raising keeps it pending for redelivery.
     """
 
-    def __init__(self, swarm: str, role: str, client: redis.Redis | None = None) -> None:
+    def __init__(self, swarm: str, role: str, client: redis.Redis | None = None,
+                 stale_after_s: float = CLAIM_STALE_AFTER_S) -> None:
+        self.stale_after_s = stale_after_s
         self.swarm = swarm
         self.role = role
         self.client = client if client is not None else get_client()
@@ -105,7 +147,7 @@ class Worker:
         for delivery in groups.read_pending(self.client, self.stream, self.group, self.consumer):
             self._process(delivery)
         for delivery in claims.autoclaim_stale(self.client, self.stream, self.group, self.consumer):
-            self._process(delivery)
+            self._process(delivery, claimed=True)
 
     def step(self, block_ms: int = 5000) -> int:
         """One read cycle. Returns how many deliveries were processed."""
@@ -143,7 +185,7 @@ class Worker:
 
     # ── per-delivery processing ──────────────────────────────────────────────
 
-    def _process(self, delivery: groups.Delivery) -> None:
+    def _process(self, delivery: groups.Delivery, claimed: bool = False) -> None:
         env = delivery.envelope
         if env is None:
             # foreign/corrupt entry: skip and ack — the coordinator dead-letters it
@@ -162,6 +204,17 @@ class Worker:
             # is processed until resume.ordered
             return
         if dedup.already_done(self.client, self.swarm, self.role, env.event_id):
+            groups.ack(self.client, self.stream, self.group, delivery.stream_id)
+            return
+        if claimed and env.type in SUPERVISED_REQUESTS \
+                and (age := _age_s(env.ts)) > self.stale_after_s:
+            dlq.route_to_dlq(
+                self.client, self.publisher, self.swarm, self.role,
+                "superseded", env.to_fields(),
+                f"{env.type} was published {age / 60:.0f} min ago and rescued from a "
+                f"dead consumer — the coordinator has re-dispatched or escalated it "
+                f"long since, so answering it now would duplicate the turn",
+            )
             groups.ack(self.client, self.stream, self.group, delivery.stream_id)
             return
         if claims.delivery_count(self.client, self.stream, self.group, delivery.stream_id) > DELIVERY_CAP:

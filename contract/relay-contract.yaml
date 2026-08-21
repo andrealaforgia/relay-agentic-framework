@@ -732,7 +732,7 @@ message_types:
       additionalProperties: false
       properties:
         original_event_id: { $ref: "#/$defs/EventId" }
-        reason: { type: string, enum: [off_contract, delivery_cap_exceeded, contract_drift, unparseable] }
+        reason: { type: string, enum: [off_contract, delivery_cap_exceeded, contract_drift, unparseable, superseded] }
         detail: { type: string }
 
   gap.detected:

@@ -41,6 +41,7 @@ class RunPurpose(StrEnum):
     MUTATION = "mutation"
     SATISFIED_CHECK = "satisfied_check"
     PROPERTIES = "properties"
+    SETUP = "setup"
 
 
 @dataclass
@@ -175,6 +176,9 @@ class Iteration:
     # kind: acceptance_test | suite | mutation | properties
     commands: dict[str, str] = field(default_factory=dict)
     plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
+    # the plan's `setup` command proven at plan time: no behaviour is
+    # dispatched until the toolchain has actually bootstrapped once
+    setup_run_id: str | None = None
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework
     properties_run_id: str | None = None  # in-flight or judged property-suite run

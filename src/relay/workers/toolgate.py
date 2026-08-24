@@ -80,10 +80,29 @@ class Toolgate(Worker):
         test_paths = " ".join(shlex.quote(p) for p in payload.get("test_paths") or [])
         command = command.replace("{test_paths}", test_paths)
 
+        # every worktree is pristine: bootstrap it (npm ci, uv sync, ...) with
+        # the plan's setup command before the run, or a suite dying on its own
+        # unresolvable imports reads as a red test (the ubies freeze)
+        setup = str(payload.get("setup_command") or "").strip() \
+            or (self.commands.get("setup", "") if kind != "setup" else "")
+
         with tempfile.TemporaryDirectory(prefix=f"relay-{run_id}-") as tmp:
             worktree = Path(tmp) / "checkout"
             gitops.add_detached_worktree(self.project, sha, worktree)
             try:
+                if setup and kind != "setup":
+                    boot = subprocess.run(
+                        setup, shell=True, cwd=worktree, env=self.env,
+                        capture_output=True, text=True, timeout=RUN_TIMEOUT_S,
+                    )
+                    if boot.returncode != 0:
+                        return self._complete(
+                            env, exit_code=boot.returncode,
+                            duration=time.monotonic() - started,
+                            output=f"setup `{setup}` failed before the run:\n"
+                                   + boot.stdout + boot.stderr,
+                            fault=faults.SETUP_FAILED,
+                        )
                 proc = subprocess.run(
                     command, shell=True, cwd=worktree, env=self.env,
                     capture_output=True, text=True, timeout=RUN_TIMEOUT_S,

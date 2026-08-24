@@ -238,12 +238,16 @@
         "suite",
         "mutation",
         "properties",
-        "command"
+        "command",
+        "setup"
       ],
       "type": "string"
     },
     "run_id": {
       "$ref": "#/$defs/RunId"
+    },
+    "setup_command": {
+      "type": "string"
     },
     "test_paths": {
       "items": {

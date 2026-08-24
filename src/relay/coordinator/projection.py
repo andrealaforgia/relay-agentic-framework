@@ -366,6 +366,13 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
             state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.PROPERTIES,
                                          since=env.ts)
         return
+    if kind == "setup":
+        iteration = state.iterations.get(str(env.iteration_id)) if env.iteration_id else None
+        if iteration is not None:
+            iteration.setup_run_id = run_id
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.SETUP,
+                                         since=env.ts)
+        return
     if kind != "acceptance_test":
         return
     b = _behaviour(state, env)
@@ -514,6 +521,7 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
             iteration.escalated = False
             if decision == "retry":
                 iteration.pending_gates.clear()
+                iteration.setup_run_id = None   # a failed bootstrap re-proves itself
             elif decision == "fix":
                 iteration.pending_gates.clear()
                 iteration.fix_requested = True

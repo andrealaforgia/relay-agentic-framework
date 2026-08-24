@@ -124,7 +124,9 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         "# somebody else's test runner.\n"
         + (f'acceptance_test = "{test_command}"\n' if test_command
            else '# acceptance_test = "<your test command>"   # e.g. cargo test -q\n')
-        + '# suite = "<your whole-suite command>"\n'
+        + '# setup = "<your bootstrap command>"       # npm ci / uv sync: runs in\n'
+        "#                                           # every pristine test checkout\n"
+        '# suite = "<your whole-suite command>"\n'
         "# mutation = \"<your mutation-testing command>\"\n\n"
         "[toolgate]\n"
         "# Workers start detached, so they inherit whatever environment the\n"

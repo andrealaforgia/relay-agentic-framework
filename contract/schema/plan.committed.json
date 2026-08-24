@@ -232,7 +232,8 @@
           "acceptance_test",
           "suite",
           "mutation",
-          "properties"
+          "properties",
+          "setup"
         ]
       },
       "type": "object"

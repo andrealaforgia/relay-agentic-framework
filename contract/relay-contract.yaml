@@ -343,7 +343,7 @@ message_types:
           type: object
           additionalProperties: { type: string }
           propertyNames:
-            enum: [acceptance_test, suite, mutation, properties]
+            enum: [acceptance_test, suite, mutation, properties, setup]
 
   stall.detected:
     payload_schema:
@@ -644,10 +644,13 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         test_paths: { type: array, items: { type: string } }
         command: { type: string }
+        # bootstrap for the pinned worktree (npm ci, uv sync, ...): runs before
+        # `command`; a non-zero exit is a setup_failed FAULT, never a red test
+        setup_command: { type: string }
         behaviour_id: { $ref: "#/$defs/BehaviourId" }
 
   run.completed:
@@ -657,7 +660,7 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         exit_code: { type: integer }
         duration_s: { type: number, minimum: 0 }
@@ -671,7 +674,7 @@ message_types:
         # Rust project — a non-zero exit that proved nothing at all.
         fault:
           type: string
-          enum: [not_executable, no_command, missing_commit, timeout, missing_dependency]
+          enum: [not_executable, no_command, missing_commit, timeout, missing_dependency, setup_failed]
 
   # ── control ─────────────────────────────────────────────────────────────────
   pause.ordered:

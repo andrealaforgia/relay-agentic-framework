@@ -18,8 +18,14 @@ developer reviewing an engineering plan.
 - **Rejected alternatives** — one line each, so the next reader knows they
   were considered
 - **Toolchain** — the exact commands that exercise this iteration's code:
-  `acceptance_test` (required), and `suite`, `mutation`, `properties` where
-  the gate policy uses them. A table of key, command, and why.
+  `acceptance_test` (required), `setup` (required whenever the stack has
+  dependencies to install — `npm ci`, `uv sync`, `bundle install`: every test
+  run happens in a PRISTINE checkout, and without setup a suite that cannot
+  even load its imports reads as a failing test), and `suite`, `mutation`,
+  `properties` where the gate policy uses them. A table of key, command, and
+  why. The coordinator proves `setup` once, immediately after the plan
+  commits, before dispatching any behaviour — a wrong command fails in
+  minutes, loudly, instead of after three burned build attempts.
 
 ## The toolchain is yours to decide, and it is binding
 

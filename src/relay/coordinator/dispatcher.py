@@ -120,7 +120,11 @@ class Dispatcher:
             if self._plan_missing(iteration):
                 published += self._nudge_for_plan(iteration)
             else:
-                published += self._advance_behaviours(state, iteration.id)
+                setup_wait = self._prove_setup(state, iteration)
+                if setup_wait is None:
+                    published += self._advance_behaviours(state, iteration.id)
+                else:
+                    published += setup_wait
         published += self._advance_stories(state)
         published += self._advance_iterations(state)
         published += self._progress(state)
@@ -907,6 +911,45 @@ class Dispatcher:
         b.state = BehaviourState.GATES_PENDING
         return published
 
+    def _prove_setup(self, state: SwarmState, iteration: Iteration) -> int | None:
+        """Prove the plan's toolchain ONCE, right after plan.committed, before
+        any behaviour is dispatched. None means proven (or nothing to prove);
+        an int is events published while the proof is pending or failed.
+
+        Twelve acceptance runs once 'failed' in worktrees whose dependencies
+        were never installed — the environment must earn the right to judge
+        code before any code is written against its verdicts."""
+        cmd = str(iteration.commands.get("setup") or "").strip()
+        if not cmd:
+            return None
+        if iteration.setup_run_id is None:
+            run_id = _new_run_id()
+            sha = self._git.head_sha()
+            iteration.setup_run_id = run_id          # mirrored: no double dispatch
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.SETUP)
+            self._publisher.send(
+                COORDINATOR, "toolgate", "run.requested",
+                {"run_id": run_id, "kind": "setup", "commit_sha": sha, "command": cmd},
+                iteration_id=iteration.id, commit_sha=sha,
+            )
+            return 1
+        run = state.runs.get(iteration.setup_run_id)
+        if run is None or run.exit_code is None:
+            return 0                                  # waiting on the toolgate
+        if run.exit_code == 0 and not run.fault:
+            return None
+        iteration.escalated = True
+        return self._ask_owner(
+            state, iteration.id,
+            (f"the setup command for {iteration.id} failed "
+             f"({run.fault or f'exit {run.exit_code}'}: "
+             f"{(run.summary or 'no output')[:200]}) — no behaviour will be "
+             f"dispatched until the toolchain actually bootstraps. Fix the "
+             f"environment or the plan's commands, then reply exactly "
+             f"`retry {iteration.id}`"),
+            iteration_id=iteration.id,
+        )
+
     def _command(self, state: SwarmState, kind: str, iteration_id: str) -> dict[str, str]:
         """The command this run kind is bound to by the iteration's approved
         change plan, ready to splat into the payload.
@@ -919,7 +962,11 @@ class Dispatcher:
         """
         iteration = state.iterations.get(iteration_id)
         command = (iteration.commands.get(kind) if iteration else None) or ""
-        return {"command": command} if command else {}
+        payload: dict[str, str] = {"command": command} if command else {}
+        setup = (iteration.commands.get("setup") if iteration else None) or ""
+        if setup:
+            payload["setup_command"] = setup   # every pristine worktree bootstraps
+        return payload
 
     def _request_run(self, state: SwarmState, b: Behaviour, purpose: RunPurpose) -> int:
         # Red-verification asks "does this test fail where it was introduced?",

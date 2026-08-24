@@ -25,6 +25,7 @@ NO_COMMAND = "no_command"           # nothing is configured for this run kind
 MISSING_COMMIT = "missing_commit"   # the sha to pin the worktree to is absent
 TIMEOUT = "timeout"                 # the command ran, but never finished
 MISSING_DEPENDENCY = "missing_dependency"  # the suite's own imports never resolved
+SETUP_FAILED = "setup_failed"       # the worktree bootstrap (npm ci, uv sync) died
 
 # Launchers that find their own subprocess and fail in their own words with
 # their own exit code, so the shell's 126/127 never reaches us: `uv run pytest`

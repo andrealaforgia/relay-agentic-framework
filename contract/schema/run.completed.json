@@ -242,7 +242,8 @@
         "no_command",
         "missing_commit",
         "timeout",
-        "missing_dependency"
+        "missing_dependency",
+        "setup_failed"
       ],
       "type": "string"
     },
@@ -252,7 +253,8 @@
         "suite",
         "mutation",
         "properties",
-        "command"
+        "command",
+        "setup"
       ],
       "type": "string"
     },

@@ -89,7 +89,7 @@ class Toolgate(Worker):
                     capture_output=True, text=True, timeout=RUN_TIMEOUT_S,
                 )
                 exit_code, output = proc.returncode, proc.stdout + proc.stderr
-                fault = faults.classify(exit_code, output)
+                fault = faults.classify(exit_code, output, workspace=worktree)
             except subprocess.TimeoutExpired:
                 exit_code, output = 124, f"timed out after {RUN_TIMEOUT_S}s"
                 fault = faults.TIMEOUT

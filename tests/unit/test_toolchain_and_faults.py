@@ -295,3 +295,59 @@ def test_a_timeout_is_a_fault_not_a_failing_test(client, publisher) -> None:
     _complete_last_run(swarm, SHA_SPEC, exit_code=124, fault=TIMEOUT,
                        summary="timed out after 900s")
     assert swarm.behaviour("I1.S1.B1").state is BehaviourState.BLOCKED
+
+
+# ── missing_dependency: a DECLARED import that never resolved is environment ─
+
+PLAYWRIGHT_DYING_BREATH = (
+    "Error: Cannot find package '@playwright/test' imported from "
+    "/tmp/relay-run-x/checkout/playwright.config.ts\n"
+    + "    at packageResolve (node:internal/modules/esm/resolve:768:81)\n" * 14
+    + "  code: 'ERR_MODULE_NOT_FOUND'\n}"
+)
+
+
+def _node_workspace(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"devDependencies": {"@playwright/test": "^1.47.0"}}')
+    return tmp_path
+
+
+def test_a_declared_import_that_never_resolved_is_a_fault(tmp_path) -> None:
+    """Twelve playwright runs in a dependency-less worktree once read as
+    twelve red tests; the builder then 'failed' three attempts against a
+    test that was never executed."""
+    from relay.workers import faults
+
+    ws = _node_workspace(tmp_path)
+    assert faults.classify(1, PLAYWRIGHT_DYING_BREATH, workspace=ws) \
+        == faults.MISSING_DEPENDENCY
+
+    (tmp_path / "pyproject.toml").write_text(
+        'project = {dependencies = ["pytest>=8"]}')
+    assert faults.classify(2, "ModuleNotFoundError: No module named 'pytest'",
+                           workspace=tmp_path) == faults.MISSING_DEPENDENCY
+
+
+def test_an_UNDECLARED_missing_module_is_an_honest_red(tmp_path) -> None:
+    """TDD's canonical red IS a missing import: the production module nobody
+    has written yet. The manifest is the discriminator, not the message."""
+    from relay.workers import faults
+
+    ws = _node_workspace(tmp_path)
+    assert faults.classify(1, "ModuleNotFoundError: No module named 'todo_app'",
+                           workspace=ws) is None
+    assert faults.classify(1, "Error: Cannot find module './lib/game'",
+                           workspace=ws) is None          # relative = code
+    # and with no workspace to consult, never claim a dependency fault
+    assert faults.classify(1, PLAYWRIGHT_DYING_BREATH) is None
+
+
+def test_a_long_suite_that_merely_mentions_the_phrase_is_evidence(tmp_path) -> None:
+    from relay.workers import faults
+
+    ws = _node_workspace(tmp_path)
+    ran_and_failed = ("FAILED tests/test_x.py::test_import_error - "
+                      "assert \"Cannot find package '@playwright/test'\" in caplog.text\n") * 40
+    assert len(ran_and_failed) > faults.MAX_DEPENDENCY_OUTPUT
+    assert faults.classify(1, ran_and_failed, workspace=ws) is None

@@ -476,6 +476,39 @@ class Dispatcher:
             )
         return published
 
+    def _ask_owner(
+        self,
+        state: SwarmState,
+        subject_id: str,
+        reason: str,
+        *,
+        behaviour_id: str | None = None,
+        story_id: str | None = None,
+        iteration_id: str | None = None,
+    ) -> int:
+        """Publish an Owner escalation and mirror it, in ONE move.
+
+        The mirror is load-bearing, not bookkeeping: _reask_orphan_escalations
+        runs later in the SAME tick, and any escalation it cannot see gets an
+        'ask was lost' twin — a live swarm once asked its Owner everything
+        twice, and answering one twin made the other unanswerable. The subject
+        guard also keeps re-entering advance loops from asking again while an
+        ask is already open."""
+        for info in state.decisions.values():
+            if not info.closed and info.subject_id == subject_id:
+                return 0                      # already on the Owner's desk
+        gate_id = _new_gate_id()
+        state.decisions[gate_id] = DecisionInfo(
+            gate_id=gate_id, subject_id=subject_id, reason=reason,
+            since="", last_ask="", asks=0,
+        )
+        self._publisher.send(
+            COORDINATOR, "interpreter", "decision.requested",
+            {"gate_id": gate_id, "subject_id": subject_id, "reason": reason},
+            behaviour_id=behaviour_id, story_id=story_id, iteration_id=iteration_id,
+        )
+        return 1
+
     def _escalate_timeout(
         self, state: SwarmState, subject_id: str, waits_on: str, since: str
     ) -> int:
@@ -553,24 +586,19 @@ class Dispatcher:
         for b in state.behaviours.values():
             if not b.infra_fault or b.state == BehaviourState.BLOCKED:
                 continue
-            self._publisher.send(
-                COORDINATOR, "interpreter", "decision.requested",
-                {
-                    "gate_id": _new_gate_id(),
-                    "subject_id": b.id,
-                    "reason": (
-                        f"the acceptance-test command for {b.id} did not run "
-                        f"({b.infra_fault}). This is an environment problem, not a "
-                        f"product one: nothing was proved about the code either way. "
-                        f"Fix the toolchain (or the change plan's commands), then "
-                        f"reply exactly `retry {b.id}` to re-run the cycle, or "
-                        f"`drop {b.id}` to accept it will not ship this iteration"
-                    ),
-                },
+            b.state = BehaviourState.BLOCKED
+            published += self._ask_owner(
+                state, b.id,
+                (
+                    f"the acceptance-test command for {b.id} did not run "
+                    f"({b.infra_fault}). This is an environment problem, not a "
+                    f"product one: nothing was proved about the code either way. "
+                    f"Fix the toolchain (or the change plan's commands), then "
+                    f"reply exactly `retry {b.id}` to re-run the cycle, or "
+                    f"`drop {b.id}` to accept it will not ship this iteration"
+                ),
                 behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
             )
-            b.state = BehaviourState.BLOCKED
-            published += 1
         return published
 
     def _escalate_run_fault(
@@ -596,23 +624,18 @@ class Dispatcher:
         subject_iteration = state.iterations.get(subject_id)
         if subject_iteration is not None:
             subject_iteration.escalated = True
-        self._publisher.send(
-            COORDINATOR, "interpreter", "decision.requested",
-            {
-                "gate_id": _new_gate_id(),
-                "subject_id": subject_id,
-                "reason": (
-                    f"the {what} command for {subject_id} did not run "
-                    f"({run.fault}: {run.summary[:200] or 'no output'}). This is an "
-                    f"environment problem, not a product one — the gate was never "
-                    f"actually judged. Fix the toolchain, then reply exactly "
-                    f"`retry {subject_id}`, or `drop {subject_id}` to waive the gate "
-                    f"on the record"
-                ),
-            },
+        return self._ask_owner(
+            state, subject_id,
+            (
+                f"the {what} command for {subject_id} did not run "
+                f"({run.fault}: {run.summary[:200] or 'no output'}). This is an "
+                f"environment problem, not a product one — the gate was never "
+                f"actually judged. Fix the toolchain, then reply exactly "
+                f"`retry {subject_id}`, or `drop {subject_id}` to waive the gate "
+                f"on the record"
+            ),
             story_id=story_id, iteration_id=iteration_id,
         )
-        return 1
 
     def _escalate_orphan_errors(self, state: SwarmState) -> int:
         """error.raised without a behaviour still reaches the owner, exactly once
@@ -754,36 +777,31 @@ class Dispatcher:
                 "source": "builder",
             }]
             b.last_fail_gate = "test_design"
-            return self._rework_or_escalate(b, "existing acceptance tests contradict this behaviour")
+            return self._rework_or_escalate(state, b, "existing acceptance tests contradict this behaviour")
         if b.error_reported is not None:
             # an assistant said it is stuck: that must never vanish (fail loud)
             reason = b.error_reported
             b.error_reported = None
-            self._publisher.send(
-                COORDINATOR, "interpreter", "decision.requested",
-                {"gate_id": _new_gate_id(), "subject_id": b.id,
-                 "reason": f"assistant reported an error on {b.id}: {reason}"},
+            b.state = BehaviourState.BLOCKED
+            return self._ask_owner(
+                state, b.id, f"assistant reported an error on {b.id}: {reason}",
                 behaviour_id=b.id, iteration_id=b.iteration_id,
             )
-            b.state = BehaviourState.BLOCKED
-            return 1
         if b.state == BehaviourState.SPEC_READY:
             return self._request_run(state, b, RunPurpose.RED_VERIFICATION)
         if b.state == BehaviourState.SATISFIED_CLAIMED:
             return self._request_run(state, b, RunPurpose.SATISFIED_CHECK)
         if b.state == BehaviourState.RED_FAILED:
             if b.spec_attempts >= self._policy.max_attempts:
-                self._publisher.send(
-                    COORDINATOR, "interpreter", "decision.requested",
-                    {"gate_id": _new_gate_id(), "subject_id": b.id,
-                     "reason": (f"behaviour {b.id} failed red-verification "
-                                f"{b.spec_attempts} times: "
-                                f"{b.last_fail_reason or 'spec loop'} — re-scope, mark as "
-                                f"already covered, or drop it")},
+                b.state = BehaviourState.BLOCKED
+                return self._ask_owner(
+                    state, b.id,
+                    (f"behaviour {b.id} failed red-verification "
+                     f"{b.spec_attempts} times: "
+                     f"{b.last_fail_reason or 'spec loop'} — re-scope, mark as "
+                     f"already covered, or drop it"),
                     behaviour_id=b.id, iteration_id=b.iteration_id,
                 )
-                b.state = BehaviourState.BLOCKED
-                return 1
             return self._dispatch_spec(b)
         if b.state == BehaviourState.RED_VERIFIED:
             blocked = self._block_uncharacterized(state, b)
@@ -812,7 +830,7 @@ class Dispatcher:
         if b.state == BehaviourState.BUILT:
             return self._request_run(state, b, RunPurpose.AT_GREEN)
         if b.state == BehaviourState.AT_RED:
-            return self._rework_or_escalate(b, b.last_fail_reason or "behaviour not accepted")
+            return self._rework_or_escalate(state, b, b.last_fail_reason or "behaviour not accepted")
         if b.state == BehaviourState.AT_GREEN:
             if self._policy.per_behaviour and not b.pending_gates:
                 return self._request_behaviour_gates(state, b)
@@ -937,20 +955,15 @@ class Dispatcher:
         }.get(purpose, BehaviourState.AT_RUN_PENDING)
         return 1
 
-    def _rework_or_escalate(self, b: Behaviour, reason: str) -> int:
+    def _rework_or_escalate(self, state: SwarmState, b: Behaviour, reason: str) -> int:
         next_attempt = b.attempt + 1
         if next_attempt > self._policy.max_attempts:
-            self._publisher.send(
-                COORDINATOR, "interpreter", "decision.requested",
-                {
-                    "gate_id": _new_gate_id(),
-                    "subject_id": b.id,
-                    "reason": f"behaviour {b.id} blocked after {b.attempt} attempts: {reason}",
-                },
+            b.state = BehaviourState.BLOCKED
+            return self._ask_owner(
+                state, b.id,
+                f"behaviour {b.id} blocked after {b.attempt} attempts: {reason}",
                 behaviour_id=b.id, iteration_id=b.iteration_id,
             )
-            b.state = BehaviourState.BLOCKED
-            return 1
         # Rework goes to whoever can act on it. test_design and mutation
         # findings are about the TESTS, which only the specifier may touch —
         # sending them to the builder asks for a change its own playbook
@@ -1154,6 +1167,7 @@ class Dispatcher:
             failed = [g.gate for g in story.pending_gates.values() if g.verdict == "fail"]
             story.reset_gates()
             return self._rework_or_escalate(
+                state,
                 target, f"story gate failed: {', '.join(failed)} (see gate findings)"
             )
         return 0
@@ -1246,23 +1260,19 @@ class Dispatcher:
             return published
         if iteration.gates_failed():
             failed = [g.gate for g in iteration.pending_gates.values() if g.verdict == "fail"]
-            self._publisher.send(
-                COORDINATOR, "interpreter", "decision.requested",
-                {
-                    "gate_id": _new_gate_id(),
-                    "subject_id": iteration.id,
-                    "reason": (
-                        f"iteration {iteration.id} gate failed: {', '.join(failed)} — "
-                        f"review the findings, then reply exactly `fix {iteration.id}` "
-                        f"(turn the findings into rework so the gate re-runs on changed "
-                        f"code), `retry {iteration.id}` (re-run as-is; cannot overturn "
-                        f"findings on unchanged code) or `drop {iteration.id}` "
-                        f"(waive this gate, on the record)"
-                    ),
-                },
+            iteration.escalated = True
+            self._ask_owner(
+                state, iteration.id,
+                (
+                    f"iteration {iteration.id} gate failed: {', '.join(failed)} — "
+                    f"review the findings, then reply exactly `fix {iteration.id}` "
+                    f"(turn the findings into rework so the gate re-runs on changed "
+                    f"code), `retry {iteration.id}` (re-run as-is; cannot overturn "
+                    f"findings on unchanged code) or `drop {iteration.id}` "
+                    f"(waive this gate, on the record)"
+                ),
                 iteration_id=iteration.id,
             )
-            iteration.escalated = True
             return 1
         return 0
 

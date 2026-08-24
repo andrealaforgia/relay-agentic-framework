@@ -459,6 +459,16 @@ def _build_requested(state: SwarmState, env: Envelope) -> None:
             b.state = BehaviourState.BUILD_DISPATCHED
 
 
+def _close_subject_decisions(state: SwarmState, subject: str) -> None:
+    """One decisive answer settles the SUBJECT, not one gate: any twin asks
+    for the same subject (re-sent escalations, orphan re-asks) close with it,
+    or the Owner is left answering the same question until one twin's subject
+    is no longer blocked and the answer 'matches nothing'."""
+    for d in state.decisions.values():
+        if d.subject_id == subject and not d.closed:
+            d.closed = True
+
+
 def _decision_made(state: SwarmState, env: Envelope) -> None:
     """The Owner's answer to an escalation, which is the way OUT of BLOCKED.
 
@@ -487,8 +497,7 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
     story = state.stories.get(subject)
     if story is not None and story.escalated:
         if decision in ("retry", "drop", "fix"):
-            if info is not None:
-                info.closed = True
+            _close_subject_decisions(state, subject)
             story.escalated = False
             if decision == "retry":
                 story.reset_gates()
@@ -501,8 +510,7 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
     iteration = state.iterations.get(subject)
     if iteration is not None and iteration.escalated:
         if decision in ("retry", "drop", "fix"):
-            if info is not None:
-                info.closed = True
+            _close_subject_decisions(state, subject)
             iteration.escalated = False
             if decision == "retry":
                 iteration.pending_gates.clear()
@@ -515,11 +523,18 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
 
     b = state.behaviours.get(subject)
     if b is None or b.state != BehaviourState.BLOCKED:
+        # A sibling answer may already have resolved this subject — twin asks
+        # exist wherever an escalation was re-sent. Absorb the answer by
+        # closing its gate quietly: flagging mismatch here re-asked the Owner
+        # a question that no longer existed, forever (the ubies loop).
+        if info is not None and not info.closed and (
+                b is not None or story is not None or iteration is not None):
+            info.closed = True
+            return
         # nothing this could unblock: never let a human decision evaporate
         state.decision_mismatch = True
         return
-    if info is not None:
-        info.closed = True
+    _close_subject_decisions(state, subject)
     if decision in ("retry", "fix"):    # for a single behaviour they coincide:
         b.state = BehaviourState.PLANNED  # the full cycle re-runs and re-earns
         b.attempt = 1

@@ -241,7 +241,8 @@
         "not_executable",
         "no_command",
         "missing_commit",
-        "timeout"
+        "timeout",
+        "missing_dependency"
       ],
       "type": "string"
     },

@@ -223,6 +223,25 @@ def _stall_detected(state: SwarmState, env: Envelope) -> None:
             iteration.plan_nudged = True
 
 
+def _plan_requested(state: SwarmState, env: Envelope) -> None:
+    # a replayed coordinator must never re-dispatch the planner. Diffed on
+    # plan_requested_since (which the live mirror leaves empty), so the first
+    # ask's own echo never reads as the supervision re-dispatch.
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        if iteration.plan_requested_since:
+            iteration.plan_redispatched = True    # second ask = the supervision retry
+        iteration.plan_nudged = True
+        iteration.plan_requested_since = env.ts
+
+
+def _plan_drafted(state: SwarmState, env: Envelope) -> None:
+    # from here the wait is on the HUMAN (feedback in chat), not the planner
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        iteration.plan_drafted = True
+
+
 def _pr_approved(state: SwarmState, env: Envelope) -> None:
     iteration = state.iterations.get(str(env.payload["iteration_id"]))
     if iteration:
@@ -522,6 +541,10 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
             if decision == "retry":
                 iteration.pending_gates.clear()
                 iteration.setup_run_id = None   # a failed bootstrap re-proves itself
+                if iteration.plan_path is None:  # planning stalled: re-dispatch it
+                    iteration.plan_nudged = False
+                    iteration.plan_requested_since = ""
+                    iteration.plan_redispatched = False
             elif decision == "fix":
                 iteration.pending_gates.clear()
                 iteration.fix_requested = True
@@ -775,6 +798,8 @@ _HANDLERS = {
     "decision.requested": _decision_requested,
     "plan.committed": _plan_committed,
     "stall.detected": _stall_detected,
+    "plan.requested": _plan_requested,
+    "plan.drafted": _plan_drafted,
     "pr.approved": _pr_approved,
     "pr.opened": _pr_opened,
     "recon.requested": _recon_requested,

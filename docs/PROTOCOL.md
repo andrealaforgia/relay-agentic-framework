@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `76f5cf37dc4e0a728b79da74fbcd9e4e09bd7e2512dd5a92c1a2257b7540b390`.
+Contract version 1, hash `8439b2d8fb00aca77c3ad6d90453eca2b0937fc0fed33022c9c9ff227049d808`.
 
 ## Roles
 
@@ -17,8 +17,11 @@ Contract version 1, hash `76f5cf37dc4e0a728b79da74fbcd9e4e09bd7e2512dd5a92c1a225
 | chat | `interpreter>owner` | `checkpoint.reached`, `pr.announced`, `questions.asked`, `roadmap.proposed`, `update.shared` |
 | chat | `owner>interpreter` | `answers.given`, `decision.made`, `feedback.given`, `instruction.given`, `problem.stated` |
 | plan | `coordinator>interpreter` | `decision.requested`, `iteration.finished`, `pause.ordered`, `pr.opened`, `resume.ordered`, `roadmap.rejected`, `stall.detected`, `story.completed` |
+| plan | `coordinator>planner` | `pause.ordered`, `plan.requested`, `resume.ordered` |
 | plan | `interpreter>coordinator` | `decision.made`, `iteration.aborted`, `iteration.started`, `pr.approved`, `roadmap.committed` |
-| plan | `planner>coordinator` | `plan.committed` |
+| plan | `interpreter>planner` | `feedback.relayed`, `plan.approved` |
+| plan | `planner>coordinator` | `error.raised`, `plan.committed` |
+| plan | `planner>interpreter` | `plan.drafted` |
 | work | `analyst>interpreter` | `questions.raised`, `recon.completed`, `stories.written` |
 | work | `builder>coordinator` | `behaviour.built`, `error.raised` |
 | work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered` |
@@ -34,7 +37,6 @@ Contract version 1, hash `76f5cf37dc4e0a728b79da74fbcd9e4e09bd7e2512dd5a92c1a225
 | gate | `security>coordinator` | `gate.judged` |
 | run | `coordinator>toolgate` | `run.requested` |
 | run | `toolgate>coordinator` | `run.completed` |
-| control | `coordinator>planner` | `pause.ordered`, `resume.ordered` |
 | system | `analyst>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `builder>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `coordinator>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
@@ -63,8 +65,9 @@ One JSON Schema per type lives in `contract/schema/`.
 | `contract.upgraded` | system | `old_hash`, `new_hash` |
 | `decision.made` | chat | `gate_id`, `decision` |
 | `decision.requested` | plan | `gate_id`, `subject_id`, `reason` |
-| `error.raised` | work | `kind`, `detail` |
+| `error.raised` | plan | `kind`, `detail` |
 | `feedback.given` | chat | `text` |
+| `feedback.relayed` | plan | `iteration_id`, `text` |
 | `gap.detected` | system | `expected_seq`, `observed_seq` |
 | `gate.judged` | gate | `gate_id`, `verdict`, `findings` |
 | `gate.requested` | gate | `gate_id`, `gate`, `subject_kind`, `subject_id`, `commit_sha`, `base_sha` |
@@ -75,7 +78,10 @@ One JSON Schema per type lives in `contract/schema/`.
 | `judgement.requested` | work | `behaviour_id`, `commit_sha`, `run_id` |
 | `message.quarantined` | system | `reason` |
 | `pause.ordered` | control | `role`, `reason` |
+| `plan.approved` | plan | `iteration_id` |
 | `plan.committed` | plan | `iteration_id`, `plan_path`, `summary` |
+| `plan.drafted` | plan | `iteration_id`, `summary`, `plan_markdown` |
+| `plan.requested` | plan | `iteration_id` |
 | `pr.announced` | chat | `iteration_id`, `pr_url` |
 | `pr.approved` | plan | `iteration_id`, `gate_id` |
 | `pr.opened` | plan | `iteration_id`, `pr_url` |

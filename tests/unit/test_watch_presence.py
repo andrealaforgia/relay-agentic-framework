@@ -47,10 +47,10 @@ def test_native_sessions_are_on_the_roster(client, tmp_path, monkeypatch) -> Non
     assert "interpreter" in rendered and "relay chat" in rendered
     assert "curator" not in rendered  # only shown once a session exists
 
-    for role in ("interpreter", "curator", "planner"):
+    for role in ("interpreter", "curator"):
         marker = tmp_path / "testswarm" / role / "native-session"
         marker.parent.mkdir(parents=True)
         marker.write_text("started")
     rendered = _rendered(_presence(client, "testswarm"))
     assert "curator" in rendered and "relay learn" in rendered
-    assert "planner" in rendered and "relay plan" in rendered
+    assert "relay plan" not in rendered   # planning lives in chat now

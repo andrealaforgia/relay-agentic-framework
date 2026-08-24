@@ -271,10 +271,9 @@ def _presence(client: redis.Redis, swarm: str) -> Table:
     else:
         detail = Text("no session yet — open `relay chat`", style="bright_black")
     table.add_row(Text("interpreter", style=ROLE_COLORS["interpreter"]), detail)
-    for role, cmd in (("curator", "relay learn"), ("planner", "relay plan")):
-        if (root / role / "native-session").exists():
-            table.add_row(Text(role, style=ROLE_COLORS.get(role, "white")),
-                          Text(f"session ({cmd})", style="bright_black"))
+    if (root / "curator" / "native-session").exists():
+        table.add_row(Text("curator", style=ROLE_COLORS.get("curator", "white")),
+                      Text("session (relay learn)", style="bright_black"))
     return table
 
 

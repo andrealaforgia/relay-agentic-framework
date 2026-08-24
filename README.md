@@ -20,7 +20,7 @@ enforced in code before every write and after every read.
 | **owner** | you | states the problem, answers questions, approves roadmaps, plans, and PRs |
 | **interpreter** | Claude session (`relay chat`) | your sole conversation partner; domain language only |
 | **curator** | Claude session (`relay learn`) | interviews you + scans the code into curated knowledge |
-| **planner** | Claude session (`relay plan`) | agrees the technical change plan with you, per iteration |
+| **planner** | Claude (headless) | drafts each iteration's technical change plan; you refine and approve it in `relay chat` |
 | **analyst** | worker | problem analysis in a question loop, then prioritized user stories |
 | **specifier** | worker | one failing acceptance test per behaviour, before any code; judges completion |
 | **builder** | worker | makes the tests pass — red, green, refactor, small continuous commits |
@@ -61,7 +61,7 @@ relay watch                   # terminal 2 — the live board
    generated from the previous answers, until no material ambiguity remains.
 3. **Approve the roadmap** — ordered iterations, each a shippable vertical slice, each
    holding stories whose acceptance criteria become individually-tested behaviours.
-4. **Approve each iteration's change plan** in `relay plan` (see below; on by default).
+4. **Approve each iteration's change plan** — drafted by the planner, presented and refined in the same chat (on by default).
 5. **Watch it build.** Every behaviour: failing acceptance test written by the specifier →
    red proven by an actual run → built → green proven → code review ∥ test-design review →
    accepted by the specifier citing the machine-run evidence. Stories end with a mutation
@@ -83,10 +83,10 @@ relay chat                    # then proceed as above
 `relay learn` is the difference between "an AI edited our repo" and "the team's knowledge
 survived the handover" — run it while the people who know the codebase are still around.
 
-## The three sessions
+## The two sessions
 
-All three are **native Claude Code sessions** — real TUI, interrupts, slash commands —
-opened with a role's playbook and wired to the swarm. All three keep their conversation
+Both are **native Claude Code sessions** — real TUI, interrupts, slash commands —
+opened with a role's playbook and wired to the swarm. Both keep their conversation
 across invocations (`--new` starts over).
 
 ### `relay chat` — the Interpreter
@@ -116,18 +116,22 @@ The knowledge is not decoration: every assistant is briefed from its own slice o
 gate uncharacterized changes, and reconnaissance is skipped when knowledge exists.
 Needs no swarm and no Redis — it is safe as the very first command on a raw clone.
 
-### `relay plan` — the Planner
+## Planning happens in the chat
 
 Before an iteration builds anything, you and the planner agree **how** the codebase will
-change. This is deliberately the one developer-facing surface: technical detail belongs here.
+change — without leaving `relay chat`. The planner is a headless assistant: the
+coordinator dispatches it the moment an iteration needs a plan, it drafts
+`docs/relay/plans/<iteration>.md` (changes by module, **what will not change**, approach
+and sequencing, risks tied to your invariants, rejected alternatives, and the
+**toolchain** — including the `setup` command that bootstraps every test checkout), and
+the interpreter presents the draft in your one conversation.
 
-- Drafts `docs/relay/plans/<iteration>.md`: changes by module, **what will not change**,
-  approach and sequencing, risks tied to your invariants, rejected alternatives.
-- Refines it with you decision by decision — the document is always the current agreement.
-- On your explicit approval it commits the plan and publishes `plan.committed` — **that
-  event is the gate**: with `plan_required: true` (the shipped default in
-  `.relay/gates.yaml`) the coordinator dispatches nothing for an unplanned iteration, and
-  the interpreter tells you the one action needed.
+- Your feedback is relayed to the planner in your own words; a revised draft comes back.
+- Your explicit approval commits the plan and publishes `plan.committed` — **that event
+  is the gate**: with `plan_required: true` (the shipped default in `.relay/gates.yaml`)
+  the coordinator dispatches nothing for an unplanned iteration.
+- The moment the plan lands, the coordinator **proves its `setup` command** with a real
+  run before dispatching any behaviour — a wrong toolchain fails in minutes, loudly.
 - The plan rides into every specifier, builder, and reviewer turn of the iteration,
   binding: a diff that strays from it is a finding; a discovery that breaks it is an
   escalation back to you, never a silent improvisation.

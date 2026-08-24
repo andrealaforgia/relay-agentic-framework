@@ -311,3 +311,26 @@ usage.reported:
   cache_creation_input_tokens: 16031
   cache_read_input_tokens: 17748
   output_tokens: 4102
+
+plan.requested:
+  iteration_id: I1
+  goal: "Friends see each other's live position on a shared map"
+  increment: "Two phones, one shared code, both pins moving"
+  story_titles: ["Get in with the shared code", "Appear as a pin when sharing"]
+
+plan.drafted:
+  iteration_id: I1
+  summary: "Vite SPA + serverless functions; one Redis hash per friend; three seams keep tests offline."
+  plan_markdown: |
+    # I1 change plan
+    ## Summary
+    ...
+  open_questions:
+    - "FriendStore port: extend the existing seam (recommended — invariant 3) or wrap it?"
+
+feedback.relayed:
+  iteration_id: I1
+  text: "Prefer wrapping — we plan to swap Redis for Postgres in I3."
+
+plan.approved:
+  iteration_id: I1

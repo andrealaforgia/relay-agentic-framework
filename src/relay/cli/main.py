@@ -153,6 +153,8 @@ def _initialize(project: Path, swarm: str, test_command: str) -> None:
         '#   "judgement.requested" = { model = "haiku", effort = "low" }\n'
         "[roles.interpreter]\n"
         'runner = "claude"\nmodel = "opus"\neffort = "medium"\n\n'
+        "[roles.planner]\n"
+        'runner = "claude"\nmodel = "opus"\neffort = "medium"\nmax_budget_usd = 4.0\n\n'
         "[roles.analyst]\n"
         'runner = "claude"\nmodel = "opus"\neffort = "high"\nmax_budget_usd = 4.0\n\n'
         "[roles.specifier]\n"
@@ -374,42 +376,10 @@ subagents), hypothesize with options, write every answer into the files
 immediately, commit when the open questions are gone.
 """
 
-PLANNER_SESSION_SUFFIX = """
-
-== Session mode ==
-You are the Planner, running as THIS Claude Code session, planning
-iteration {iteration} of this project. The human here is a developer
-reviewing an engineering plan — technical detail is welcome.
-
-== Your commands (use these exact paths; do not go looking for them) ==
-  {send}    publish on the bus (relay-send)
-  {id}      mint an id if you ever need one
-
-When (and only when) the human explicitly approves the plan: commit
-docs/relay/plans/{iteration}.md, then run
-  {send} --swarm {swarm} --from planner --to coordinator \\
-    --type plan.committed --iteration {iteration} \\
-    --payload '{{"iteration_id": "{iteration}", "plan_path": "docs/relay/plans/{iteration}.md", "summary": "<one paragraph>", "commit_sha": "<full sha from git rev-parse HEAD>", "commands": {{"acceptance_test": "<how this project runs its tests>"}}}}'
-That event is what unblocks the iteration — without it, nothing gets built.
-
-`commands` is the toolchain this iteration is exercised with, and relay has
-no default: whatever you put there is what the toolgate runs, on every run,
-and nothing runs if you leave it out. `acceptance_test` is required; add
-`suite`, `mutation` or `properties` where the gate policy uses them. Verify
-each command in the project before you name it, and remember the workers are
-started detached — a binary you can type is not automatically one they can
-find. This belongs in the payload, never in .relay/relay.toml: a toolchain
-recorded there is a decision no gate reads and no restart re-reads.
-
-== The iteration you are planning ==
-{iteration_context}
-"""
-
-
 def _session_pin_args(marker: Path, new: bool) -> tuple[list[str], bool]:
     """Per-role conversation pinning. `claude --continue` resumes the most
     recent conversation in the DIRECTORY — with chat, learn, and plan all
-    living in the project root, `relay plan` would reopen the chat session.
+    living in the project root, a second session command would reopen the chat conversation.
     Each role gets its own session UUID instead: started with --session-id,
     resumed with --resume, stored in the role's marker file.
 
@@ -445,7 +415,7 @@ def _native_session_exec(
 
     `session_key` splits the role's pin. The curator learns one codebase, so
     one conversation per swarm is right. A PLAN IS PER ITERATION: pinning the
-    planner per role meant `relay plan` for I2 resumed the conversation that
+    planner per role once meant planning I2 resumed the conversation that
     planned I1, opening on settled decisions about work that already shipped,
     and skipping the kickoff that names the new iteration.
     """
@@ -488,70 +458,6 @@ def learn(
                "with your first round of highest-stakes hypotheses.")
     _native_session_exec(project, "curator", name, playbook + CURATOR_SESSION_SUFFIX,
                          kickoff, "opus", new)
-
-
-@app.command()
-def plan(
-    swarm: str = SwarmOpt,
-    iteration: str = typer.Option(None, "--iteration", help="Iteration to plan (default: the one waiting)"),
-    new: bool = typer.Option(False, "--new", help="Start a fresh planning session"),
-) -> None:
-    """Agree the technical change plan for an iteration with the human before
-    anything is built (docs/relay/plans/<iteration>.md). With plan_required
-    on, the coordinator dispatches nothing until the plan is committed."""
-    from relay.cli.context import find_project
-    from relay.cli.entrypoints import relay_command
-    from relay.contract import load_contract
-    from relay.contract.cheatsheet import for_role
-    from relay.coordinator.projection import project as project_events
-    from relay.ledger.reader import read_all
-
-    project_dir = find_project()
-    name = _swarm(swarm)
-    client = get_client()
-    state = project_events(env for _sid, env in read_all(client, name))
-
-    target = None
-    if iteration:
-        target = state.iterations.get(iteration)
-        if target is None:
-            console.print(f"[red]✗[/red] no iteration '{iteration}' on the roadmap")
-            raise typer.Exit(1)
-    else:
-        target = state.active_iteration() or next(
-            (it for it in state.iterations.values() if it.plan_path is None and not it.aborted),
-            None,
-        )
-    if target is None:
-        console.print("[red]✗[/red] nothing to plan — approve a roadmap first (relay chat)")
-        raise typer.Exit(1)
-    if target.plan_path is not None:
-        console.print(f"[yellow]•[/yellow] {target.id} already has an approved plan "
-                      f"({target.plan_path}) — continuing the session to revise it")
-
-    lines = [f"{target.id}: {target.goal}", f"increment: {target.increment}"]
-    for sid in target.story_ids:
-        story = state.stories[sid]
-        lines.append(f"  {story.id} — {story.title}")
-        for b in state.story_behaviours(story.id):
-            lines.append(f"    {b.id}: {b.ac_text}")
-    playbook = (Path(__file__).resolve().parents[3] / "roles" / "planner.md").read_text()
-    system_prompt = playbook + PLANNER_SESSION_SUFFIX.format(
-        iteration=target.id,
-        swarm=name,
-        send=relay_command("relay-send"),
-        id=relay_command("relay-id"),
-        iteration_context="\n".join(lines),
-    ) + for_role(load_contract(), "planner")
-    verb = ("re-read and revise" if target.plan_path
-            else f"draft docs/relay/plans/{target.id}.md,")
-    kickoff = (f"Ground yourself in docs/relay/knowledge/ (if present) and the "
-               f"iteration above, {verb} present it, and refine it with the human "
-               f"until they approve. This session is about {target.id} and nothing "
-               f"else: earlier iterations are settled, and their plans are committed "
-               f"in docs/relay/plans/ if you need to consult one.")
-    _native_session_exec(project_dir, "planner", name, system_prompt, kickoff, "opus",
-                         new, session_key=target.id)
 
 
 NATIVE_SESSION_SUFFIX = """

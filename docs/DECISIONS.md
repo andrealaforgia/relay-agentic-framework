@@ -442,3 +442,37 @@ same result; a property suite that explores randomly would make honest
 verdicts look contested. Randomized exploration belongs in CI cron, not in a
 gate. Failure feeds back through the same rework loop as every other gate —
 nothing new for the builder to learn, one more way for the truth to arrive.
+
+## D25 — The toolchain earns the right to judge code (2026-08-24)
+
+Twelve acceptance runs "failed" in pristine worktrees whose dependencies
+were never installed; red-verification blessed the crashes and a builder
+burned three attempts against a suite that never loaded. Three answers,
+each deterministic:
+
+- `missing_dependency` fault: a missing import that the project's manifest
+  DECLARES is an environment that never bootstrapped; one the manifest has
+  never heard of is the module nobody has written yet — TDD's canonical
+  red. The manifest, not the error message, is the discriminator.
+- The plan's `commands` carry `setup` (npm ci, uv sync). The toolgate runs
+  it in every pristine worktree before the real command; a non-zero
+  bootstrap is a `setup_failed` fault, never a red test.
+- The coordinator proves `setup` ONCE, immediately after plan.committed and
+  before dispatching any behaviour. A wrong toolchain fails in minutes,
+  loudly, with the machine named — not after an afternoon of phantom reds.
+
+## D26 — Planning happens in the chat (2026-08-24)
+
+`relay plan` opened a third terminal and a second conversation, and its
+session pinning had already bitten once. Andrea's call: one conversation is
+the whole owner surface. The planner is now a headless worker on the
+analyst's pattern — coordinator dispatches `plan.requested`; the planner
+drafts and sends `plan.drafted` (summary + FULL markdown + open questions);
+the interpreter presents it verbatim in `relay chat`, relays feedback with
+`feedback.relayed`, and turns explicit approval into `plan.approved`; only
+then does the planner commit the document and publish `plan.committed`.
+The wait is supervised at every hop: an unresponsive planner is
+re-dispatched once then escalated; a drafted plan shows as waiting on the
+OWNER in the chat. `relay plan` is gone — removed, not deprecated: two ways
+to do one thing is how drift starts. (The role keeps its name; renaming to
+"architect" was considered and declined.)

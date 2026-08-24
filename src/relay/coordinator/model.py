@@ -175,7 +175,10 @@ class Iteration:
     # the toolchain the approved change plan binds this iteration to, by run
     # kind: acceptance_test | suite | mutation | properties
     commands: dict[str, str] = field(default_factory=dict)
-    plan_nudged: bool = False           # stall.detected(waiting_on=planner) seen
+    plan_nudged: bool = False           # plan.requested dispatched to the planner
+    plan_requested_since: str = ""      # when — supervised like any dispatch
+    plan_redispatched: bool = False     # the one supervision re-ask happened
+    plan_drafted: bool = False          # draft is with the Owner in chat
     # the plan's `setup` command proven at plan time: no behaviour is
     # dispatched until the toolchain has actually bootstrapped once
     setup_run_id: str | None = None

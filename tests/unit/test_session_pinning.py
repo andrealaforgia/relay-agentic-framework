@@ -51,9 +51,9 @@ def test_legacy_started_marker_starts_pinned(tmp_path: Path) -> None:
 
 
 def test_planning_a_new_iteration_never_resumes_the_previous_one(tmp_path: Path) -> None:
-    """A plan is per iteration. Pinning the planner per ROLE meant `relay plan`
-    for I2 reopened the conversation that planned I1: settled decisions about
-    shipped work, and no kickoff naming the new iteration."""
+    """Session keys can scope finer than a role: two markers, two
+    conversations, and revisiting the first lands back in it (the planner
+    once needed this; the mechanics stay for any keyed session)."""
     i1, fresh_i1 = _session_pin_args(tmp_path / "planner" / "native-session-I1", new=False)
     i2, fresh_i2 = _session_pin_args(tmp_path / "planner" / "native-session-I2", new=False)
     assert fresh_i1 and fresh_i2          # each iteration opens its own

@@ -18,7 +18,7 @@ from relay.workers.base import Worker
 from relay.workers.chain import ChainWorker
 from relay.workers.toolgate import Toolgate
 
-CHAIN_ROLES = ("interpreter", "analyst", "specifier", "builder", "reviewer", "qa", "security")
+CHAIN_ROLES = ("interpreter", "planner", "analyst", "specifier", "builder", "reviewer", "qa", "security")
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -71,20 +71,20 @@ WRITING_ROLES = ("specifier", "builder")
 # roadmap (Andrea's call, 2026-08-19 — its long context costs real money at
 # opus rates, and it is worth it). Gates stay on sonnet deliberately: a cheap
 # gate that waves things through does not save money, it defers a bug.
-ROLE_DEFAULT_MODELS = {"analyst": "opus", "interpreter": "opus"}
+ROLE_DEFAULT_MODELS = {"analyst": "opus", "interpreter": "opus", "planner": "opus"}
 # Effort caps the agentic loop, and loop count is what makes a turn expensive:
 # every loop re-sends the whole accumulated context. The builder writes the
 # code and keeps the headroom; judging a behaviour-sized diff does not need it.
 ROLE_DEFAULT_EFFORT = {
     "builder": "high",
-    "specifier": "medium", "analyst": "medium", "interpreter": "medium",
+    "specifier": "medium", "analyst": "medium", "interpreter": "medium", "planner": "medium",
     "reviewer": "medium", "qa": "medium", "security": "medium",
 }
 # A hard per-turn ceiling, generous enough that only a runaway hits it — the
 # observed spread on a toy project was $0.20-$2.40 a turn. Fail closed: the
 # turn stops, the worker fails loudly, and a human decides.
 ROLE_DEFAULT_BUDGET_USD = {
-    "builder": 3.0, "specifier": 2.5, "analyst": 2.5,
+    "builder": 3.0, "specifier": 2.5, "analyst": 2.5, "planner": 4.0,
     "reviewer": 1.5, "qa": 1.5, "security": 1.5,
 }
 

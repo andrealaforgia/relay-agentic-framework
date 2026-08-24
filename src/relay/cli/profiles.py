@@ -47,6 +47,12 @@ PROFILES: dict[str, dict[str, list[str]]] = {
                   *_RELAY_BASH, *_GIT_READ],
         "deny": ["WebFetch", "WebSearch"],
     },
+    "planner": {
+        # writes docs/relay/plans/<iteration>.md and commits it on approval
+        "allow": ["Read", "Glob", "Grep", "TodoWrite", "Task", "Write", "Edit",
+                  *_RELAY_BASH, *_GIT_READ, *_GIT_COMMIT_ANALYSIS],
+        "deny": ["WebFetch", "WebSearch"],
+    },
     # writing roles: full workspace + shell (tests, git) — still inside the
     # project cwd and still auditable, unlike skip-permissions
     "specifier": {"allow": ["Read", "Glob", "Grep", "TodoWrite", "Task", "Write", "Edit", "Bash"],

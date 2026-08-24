@@ -1,6 +1,7 @@
 """Plan mode: no behaviour is dispatched until an Owner-approved change plan
-is committed — a dispatcher rule, nudged to the Owner exactly once, unblocked
-by plan.committed, exact across restarts."""
+is committed — a dispatcher rule. Planning happens IN `relay chat`: the
+coordinator dispatches the planner once, the interpreter relays the draft and
+the feedback, and plan.committed unblocks — exact across restarts."""
 
 from __future__ import annotations
 
@@ -25,19 +26,20 @@ def _start(client, publisher, policy) -> MiniSwarm:
     return mini
 
 
-def test_plan_gate_blocks_dispatch_and_nudges_once(client, publisher) -> None:
+def test_plan_gate_blocks_dispatch_and_dispatches_the_planner_once(client, publisher) -> None:
     swarm = _start(client, publisher, PLAN_POLICY)
     assert swarm.sent("spec.requested") == []           # nothing dispatched
-    (nudge,) = swarm.sent("stall.detected")             # the Owner is told once
-    assert nudge.payload["waiting_on"] == "planner"
-    assert nudge.payload["subject_id"] == "I1"
+    (ask,) = swarm.sent("plan.requested")               # the planner is asked once
+    assert ask.to_role == "planner"
+    assert ask.payload["iteration_id"] == "I1"
+    assert ask.payload["goal"]                          # context travels with the ask
     swarm.pump()
-    assert len(swarm.sent("stall.detected")) == 1       # never re-nagged
+    assert len(swarm.sent("plan.requested")) == 1       # never re-asked by react()
 
-    # cold restart: replay produces no second nudge and still no dispatch
+    # cold restart: replay produces no second dispatch and still no spec
     fresh = MiniSwarm(client, publisher, policy=PLAN_POLICY)
     fresh.pump()
-    assert len(fresh.sent("stall.detected")) == 1
+    assert len(fresh.sent("plan.requested")) == 1
     assert fresh.sent("spec.requested") == []
 
 
@@ -82,3 +84,42 @@ def test_knowledge_briefing_slices_per_role(tmp_path: Path) -> None:
     qa = briefing.build(tmp_path, "qa", "gate.requested", {})
     assert "Never round prices" not in qa                # not qa's slice
     assert briefing.build(tmp_path, "toolgate", "run.requested", {}) == ""
+
+
+def test_planning_is_supervised_redispatch_then_escalate_then_retry(client, publisher) -> None:
+    """A dispatched planner is a wait like any other: overdue with no draft
+    -> one re-dispatch -> Owner escalation; `retry I1` re-dispatches planning."""
+    import time as _time
+
+    swarm = _start(client, publisher, PLAN_POLICY)
+    overdue = _time.time() + PLAN_POLICY.dispatch_timeout_s + 1
+    swarm.dispatcher.tick(swarm.state, overdue)
+    swarm.pump()
+    assert len(swarm.sent("plan.requested")) == 2       # the one re-dispatch
+
+    swarm.dispatcher.tick(swarm.state, overdue + PLAN_POLICY.dispatch_timeout_s + 1)
+    asks = [e for e in swarm.sent("decision.requested") if e.payload["subject_id"] == "I1"]
+    assert len(asks) == 1                               # asked once, not twinned
+    assert "planner" in asks[0].payload["reason"]
+
+    publisher.send("owner", "interpreter", "decision.made",
+                   {"gate_id": asks[0].payload["gate_id"], "subject_id": "I1",
+                    "decision": "retry"})
+    swarm.pump()
+    assert len(swarm.sent("plan.requested")) == 3       # planning re-dispatched
+
+
+def test_a_drafted_plan_moves_the_wait_to_the_owner(client, publisher) -> None:
+    from relay.coordinator.diagnosis import waiting_on
+
+    swarm = _start(client, publisher, PLAN_POLICY)
+    items = {i.subject_id: i for i in waiting_on(swarm.state)}
+    assert items["I1"].waiting_on == "planner"
+
+    publisher.send("planner", "interpreter", "plan.drafted",
+                   {"iteration_id": "I1", "summary": "extend the existing seam",
+                    "plan_markdown": "# I1 plan\n...", "open_questions": ["extend or wrap?"]})
+    swarm.pump()
+    items = {i.subject_id: i for i in waiting_on(swarm.state)}
+    assert items["I1"].waiting_on == "OWNER"
+    assert "relay chat" in items["I1"].detail

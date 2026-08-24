@@ -37,7 +37,7 @@ class Policy:
     build_granularity: str = "behaviour"
     # Plan mode: no behaviour is dispatched for an iteration until a change
     # plan (docs/relay/plans/<iteration>.md, authored with the Owner in
-    # `relay plan`) is committed. Fail closed, like every other gate.
+    # `relay chat`, drafted by the planner) is committed. Fail closed.
     plan_required: bool = False
     # Deadline supervision: anything dispatched and unanswered past this is
     # re-dispatched once, then escalated to the Owner. Waiting states

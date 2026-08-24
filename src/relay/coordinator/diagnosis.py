@@ -111,10 +111,17 @@ def waiting_on(state: SwarmState) -> list[WaitingItem]:
     for iteration in state.iterations.values():
         if iteration.started and not iteration.aborted and iteration.plan_nudged \
                 and iteration.plan_path is None:
-            items.append(WaitingItem(
-                subject_id=iteration.id, waiting_on="OWNER", since="",
-                detail="awaiting change plan — run `relay plan`",
-            ))
+            if iteration.plan_drafted:
+                items.append(WaitingItem(
+                    subject_id=iteration.id, waiting_on="OWNER", since="",
+                    detail="change plan drafted — review and approve it in `relay chat`",
+                ))
+            else:
+                items.append(WaitingItem(
+                    subject_id=iteration.id, waiting_on="planner",
+                    since=iteration.plan_requested_since,
+                    detail="drafting the change plan",
+                ))
 
     # 3. in-flight work, by who owes the next move. PLANNED is queue, not
     # stuckness, and future iterations aren't even queue yet — reporting

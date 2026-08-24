@@ -17,10 +17,10 @@
 contract_version: 1
 
 roles:
-  # planner is session-hosted like the interpreter: it lives inside
-  # `relay plan` (a native Claude Code session) and is never started by
-  # `relay up`. It exists as a role so its one formal act — committing an
-  # approved change plan — is a first-class, audited edge.
+  # planner is a headless worker like the analyst: the Owner never opens a
+  # separate session for it. Planning happens in `relay chat` — the planner
+  # drafts, the interpreter presents, feedback is relayed, and approval
+  # commits the plan. One conversation is the whole owner surface.
   assistants: [interpreter, planner, analyst, specifier, builder, reviewer, qa, security]
   humans: [owner]
   infra: [coordinator, toolgate, system]
@@ -109,7 +109,10 @@ edges:
     interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved,
                               decision.made]
     coordinator>interpreter: [story.completed, iteration.finished, stall.detected, roadmap.rejected, decision.requested, pr.opened]
-    planner>coordinator: [plan.committed]
+    coordinator>planner: [plan.requested]
+    planner>interpreter: [plan.drafted]
+    interpreter>planner: [feedback.relayed, plan.approved]
+    planner>coordinator: [plan.committed, error.raised]
   work:
     interpreter>analyst: [analysis.requested, answers.relayed]
     analyst>interpreter: [questions.raised, recon.completed, stories.written]
@@ -323,6 +326,50 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         summary: { type: string }
         how_to_try: { type: string, maxLength: 600 }
+
+  plan.requested:
+    payload_schema:
+      type: object
+      required: [iteration_id]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        goal: { type: string }
+        increment: { type: string }
+        story_titles: { type: array, items: { type: string } }
+
+  # The planner's draft, presented to the Owner BY THE INTERPRETER in the one
+  # chat conversation. Carrying the full markdown here is deliberate: the
+  # interpreter must never paraphrase what the human is approving.
+  plan.drafted:
+    payload_schema:
+      type: object
+      required: [iteration_id, summary, plan_markdown]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        summary: { type: string, maxLength: 2000 }
+        plan_markdown: { type: string, maxLength: 40000 }
+        open_questions: { type: array, items: { type: string } }
+
+  feedback.relayed:
+    payload_schema:
+      type: object
+      required: [iteration_id, text]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        text: { type: string, minLength: 1 }
+
+  # The human said yes, in their own words, relayed as a first-class event:
+  # only after this may the planner commit the plan and publish plan.committed.
+  plan.approved:
+    payload_schema:
+      type: object
+      required: [iteration_id]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
 
   plan.committed:
     payload_schema:

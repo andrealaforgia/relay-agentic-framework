@@ -149,6 +149,42 @@ class Dispatcher:
         published += self._reask_orphan_escalations(state)
         published += self._supervise_behaviours(state, now_s)
         published += self._supervise_story_and_iteration_gates(state, now_s)
+        published += self._supervise_planning(state, now_s)
+        return published
+
+    def _supervise_planning(self, state: SwarmState, now_s: float) -> int:
+        """A dispatched planner is supervised like any worker: overdue with no
+        draft -> re-dispatch once -> escalate. Once the draft is with the
+        Owner in chat, the wait is a human one and decision nudging does not
+        apply — the interpreter owns re-surfacing it."""
+        published = 0
+        for iteration in state.iterations.values():
+            if (not iteration.started or iteration.aborted
+                    or iteration.plan_path is not None or not iteration.plan_nudged
+                    or iteration.plan_drafted or iteration.escalated):
+                continue
+            if not self._overdue(iteration.plan_requested_since, now_s,
+                                 self._policy.dispatch_timeout_s):
+                continue
+            if not iteration.plan_redispatched:
+                iteration.plan_redispatched = True   # mirrored when the event folds
+                iteration.plan_requested_since = _iso(now_s)
+                self._publisher.send(
+                    COORDINATOR, "planner", "plan.requested",
+                    {"iteration_id": iteration.id, "goal": iteration.goal,
+                     "increment": iteration.increment},
+                    iteration_id=iteration.id,
+                )
+                published += 1
+                continue
+            iteration.escalated = True
+            published += self._ask_owner(
+                state, iteration.id,
+                (f"the planner has not drafted a change plan for {iteration.id} "
+                 f"after two dispatches — check `relay tail planner`, then reply "
+                 f"exactly `retry {iteration.id}` to re-dispatch planning"),
+                iteration_id=iteration.id,
+            )
         return published
 
     # ── verdict integrity: contested passes and the Owner's `fix` ────────────
@@ -547,16 +583,18 @@ class Dispatcher:
         return self._policy.plan_required and iteration.plan_path is None
 
     def _nudge_for_plan(self, iteration: Iteration) -> int:
-        """Tell the Owner (via the Interpreter) exactly once per iteration;
-        the projection folds the nudge, so a restart never re-nags."""
+        """Dispatch the planner, exactly once per iteration. Planning happens
+        IN `relay chat`: the planner drafts, the interpreter presents, the
+        Owner's feedback is relayed back, approval commits — no separate
+        session to open, no second conversation to remember exists."""
         if iteration.plan_nudged:
             return 0
         self._publisher.send(
-            COORDINATOR, "interpreter", "stall.detected",
+            COORDINATOR, "planner", "plan.requested",
             {
-                "subject_id": iteration.id,
-                "waiting_on": "planner",
-                "since_ts": _now_iso(),
+                "iteration_id": iteration.id,
+                "goal": iteration.goal,
+                "increment": iteration.increment,
             },
             iteration_id=iteration.id,
         )

@@ -20,10 +20,10 @@ PLAN = {"iteration_id": "I1", "plan_path": "docs/relay/plans/I1.md",
 PLAN_POLICY = Policy(plan_required=True)
 
 
-def _start(client, publisher, commands: dict[str, str]) -> MiniSwarm:
+def _start(client, publisher, commands: dict[str, str], mode: str = "greenfield") -> MiniSwarm:
     mini = MiniSwarm(client, publisher, policy=PLAN_POLICY)
     publisher.send("interpreter", "coordinator", "roadmap.committed",
-                   {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
+                   {"roadmap": ROADMAP, "intake": {"mode": mode}})
     publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
     publisher.send("planner", "coordinator", "plan.committed",
                    {**PLAN, "commands": commands}, iteration_id="I1")
@@ -61,8 +61,11 @@ def test_the_plan_setup_is_proven_before_any_behaviour_dispatches(client, publis
 
 
 def test_a_failed_setup_blocks_the_iteration_loudly_and_retry_reproves(client, publisher) -> None:
+    """On a LEGACY codebase there is nothing to scaffold — a broken setup goes
+    straight to the human who owns the environment."""
     swarm = _start(client, publisher,
-                   {"acceptance_test": "npx playwright test {test_paths}", "setup": "npm ci"})
+                   {"acceptance_test": "npx playwright test {test_paths}", "setup": "npm ci"},
+                   mode="legacy")
     run = _setup_run(swarm)
     publisher.send("toolgate", "coordinator", "run.completed",
                    {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
@@ -88,3 +91,91 @@ def test_a_plan_without_setup_changes_nothing(client, publisher) -> None:
     assert _setup_run(swarm) is None
     assert len(swarm.sent("spec.requested")) >= 1
     assert swarm.behaviour("I1.S1.B1").state == BehaviourState.SPEC_DISPATCHED
+
+
+NPM_EUSAGE = ("npm error code EUSAGE\nnpm error The `npm ci` command can only "
+              "install with an existing package-lock.json")
+
+
+def test_greenfield_setup_failure_sends_the_builder_not_the_owner(client, publisher) -> None:
+    """The ubies greenfield freeze: the plan proposed a stack, the setup proof
+    ran `npm ci` against a repo with only docs in it, and the OWNER was asked
+    to fix a 'startup-step defect'. Wrong recipient: the builder initialises
+    the project, the proof re-runs, work begins — no human in the loop."""
+    swarm = _start(client, publisher,
+                   {"acceptance_test": "npx playwright test {test_paths}",
+                    "setup": "npm ci && npx playwright install chromium"})
+    run = _setup_run(swarm)
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                    "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
+                    "summary": NPM_EUSAGE})
+    swarm.pump()
+
+    assert swarm.sent("decision.requested") == []       # the Owner hears nothing
+    (scaffold,) = swarm.sent("scaffold.requested")
+    assert scaffold.to_role == "builder"
+    assert "npm ci" in scaffold.payload["detail"]       # the evidence travels
+
+    publisher.send("builder", "coordinator", "scaffold.completed",
+                   {"iteration_id": "I1", "commit_sha": "5" * 40,
+                    "summary": "Vite TS skeleton, lockfile, playwright config"})
+    swarm.pump()
+    setups = [r for r in swarm.sent("run.requested") if r.payload["kind"] == "setup"]
+    assert len(setups) == 2                             # the proof re-runs at new HEAD
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": setups[-1].payload["run_id"], "kind": "setup",
+                    "commit_sha": setups[-1].payload["commit_sha"], "exit_code": 0,
+                    "duration_s": 20.0, "output_digest": "e" * 64})
+    swarm.pump()
+    assert len(swarm.sent("spec.requested")) >= 1       # work begins
+
+    # replay: nothing re-dispatches
+    fresh = MiniSwarm(client, publisher, policy=PLAN_POLICY)
+    fresh.pump()
+    assert len(fresh.sent("scaffold.requested")) == 1
+    assert len([r for r in fresh.sent("run.requested")
+                if r.payload["kind"] == "setup"]) == 2
+
+
+def test_setup_failing_even_after_the_scaffold_reaches_the_owner(client, publisher) -> None:
+    swarm = _start(client, publisher, {"acceptance_test": "x", "setup": "npm ci"})
+    run = _setup_run(swarm)
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                    "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
+                    "summary": NPM_EUSAGE})
+    swarm.pump()
+    publisher.send("builder", "coordinator", "scaffold.completed",
+                   {"iteration_id": "I1", "commit_sha": "5" * 40})
+    swarm.pump()
+    second = [r for r in swarm.sent("run.requested") if r.payload["kind"] == "setup"][-1]
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": second.payload["run_id"], "kind": "setup",
+                    "commit_sha": second.payload["commit_sha"], "exit_code": 1,
+                    "duration_s": 1.0, "output_digest": "d" * 64,
+                    "summary": "EAI_AGAIN registry.npmjs.org"})
+    swarm.pump()
+    asks = [e for e in swarm.sent("decision.requested")
+            if e.payload["subject_id"] == "I1"]
+    assert len(asks) == 1                               # now it IS the Owner's
+    assert len(swarm.sent("scaffold.requested")) == 1   # never scaffolds twice
+
+
+def test_a_stalled_scaffold_is_supervised(client, publisher) -> None:
+    import time as _time
+
+    swarm = _start(client, publisher, {"acceptance_test": "x", "setup": "npm ci"})
+    run = _setup_run(swarm)
+    publisher.send("toolgate", "coordinator", "run.completed",
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                    "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
+                    "summary": NPM_EUSAGE})
+    swarm.pump()
+    overdue = _time.time() + PLAN_POLICY.dispatch_timeout_s + 1
+    swarm.dispatcher.tick(swarm.state, overdue)
+    swarm.pump()
+    assert len(swarm.sent("scaffold.requested")) == 2   # one re-dispatch
+    swarm.dispatcher.tick(swarm.state, overdue + PLAN_POLICY.dispatch_timeout_s + 1)
+    asks = [e for e in swarm.sent("decision.requested") if e.payload["subject_id"] == "I1"]
+    assert len(asks) == 1 and "builder" in asks[0].payload["reason"]

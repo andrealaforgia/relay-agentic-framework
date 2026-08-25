@@ -119,8 +119,8 @@ edges:
     coordinator>analyst: [recon.requested]
     coordinator>specifier: [spec.requested, judgement.requested, rework.requested]
     specifier>coordinator: [spec.written, spec.satisfied, acceptance.judged, error.raised]
-    coordinator>builder: [build.requested, rework.requested]
-    builder>coordinator: [behaviour.built, error.raised]
+    coordinator>builder: [build.requested, rework.requested, scaffold.requested]
+    builder>coordinator: [behaviour.built, scaffold.completed, error.raised]
   gate:
     coordinator>reviewer: [gate.requested]
     coordinator>qa: [gate.requested]
@@ -572,6 +572,30 @@ message_types:
         verdict: { type: string, enum: [pass, fail] }
         run_id: { $ref: "#/$defs/RunId" }
         reason: { type: string }
+
+  # Greenfield bootstrap: the plan proposed a stack, but a from-scratch repo
+  # has nothing for the setup command to install into. The builder initialises
+  # the project (manifest, lockfile, test-runner config, layout) and commits —
+  # then the toolchain proof re-runs. Work must never stop before the first
+  # behaviour because the workshop assumed a project that does not exist yet.
+  scaffold.requested:
+    payload_schema:
+      type: object
+      required: [iteration_id, detail]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        detail: { type: string }     # what the setup proof said, verbatim
+
+  scaffold.completed:
+    payload_schema:
+      type: object
+      required: [iteration_id, commit_sha]
+      additionalProperties: false
+      properties:
+        iteration_id: { $ref: "#/$defs/IterationId" }
+        commit_sha: { $ref: "#/$defs/GitSha" }
+        summary: { type: string, maxLength: 1000 }
 
   build.requested:
     payload_schema:

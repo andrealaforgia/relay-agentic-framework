@@ -132,6 +132,10 @@ the interpreter presents the draft in your one conversation.
   the coordinator dispatches nothing for an unplanned iteration.
 - The moment the plan lands, the coordinator **proves its `setup` command** with a real
   run before dispatching any behaviour — a wrong toolchain fails in minutes, loudly.
+  On a greenfield project, where there is nothing to install into yet, the failed proof
+  sends the **builder** to initialise the project from the plan's stack (manifest,
+  lockfile, runner config), then re-proves — the Owner is only asked when the toolchain
+  fails on a project that actually exists.
 - The plan rides into every specifier, builder, and reviewer turn of the iteration,
   binding: a diff that strays from it is a finding; a discovery that breaks it is an
   escalation back to you, never a silent improvisation.

@@ -235,6 +235,25 @@ def _plan_requested(state: SwarmState, env: Envelope) -> None:
         iteration.plan_requested_since = env.ts
 
 
+def _scaffold_requested(state: SwarmState, env: Envelope) -> None:
+    # mirror leaves scaffold_requested_since empty, so the first dispatch's
+    # own echo never reads as the supervision re-dispatch (plan.requested's
+    # pattern)
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        if iteration.scaffold_requested_since:
+            iteration.scaffold_redispatched = True
+        iteration.scaffold_dispatched = True
+        iteration.scaffold_requested_since = env.ts
+
+
+def _scaffold_completed(state: SwarmState, env: Envelope) -> None:
+    iteration = state.iterations.get(str(env.payload["iteration_id"]))
+    if iteration:
+        iteration.scaffold_done = True
+        iteration.setup_run_id = None    # the toolchain proof re-runs at new HEAD
+
+
 def _plan_drafted(state: SwarmState, env: Envelope) -> None:
     # from here the wait is on the HUMAN (feedback in chat), not the planner
     iteration = state.iterations.get(str(env.payload["iteration_id"]))
@@ -541,6 +560,10 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
             if decision == "retry":
                 iteration.pending_gates.clear()
                 iteration.setup_run_id = None   # a failed bootstrap re-proves itself
+                if not iteration.scaffold_done:  # a stuck scaffold gets a fresh try
+                    iteration.scaffold_dispatched = False
+                    iteration.scaffold_requested_since = ""
+                    iteration.scaffold_redispatched = False
                 if iteration.plan_path is None:  # planning stalled: re-dispatch it
                     iteration.plan_nudged = False
                     iteration.plan_requested_since = ""
@@ -799,6 +822,8 @@ _HANDLERS = {
     "plan.committed": _plan_committed,
     "stall.detected": _stall_detected,
     "plan.requested": _plan_requested,
+    "scaffold.requested": _scaffold_requested,
+    "scaffold.completed": _scaffold_completed,
     "plan.drafted": _plan_drafted,
     "pr.approved": _pr_approved,
     "pr.opened": _pr_opened,

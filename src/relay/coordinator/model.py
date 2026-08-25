@@ -182,6 +182,12 @@ class Iteration:
     # the plan's `setup` command proven at plan time: no behaviour is
     # dispatched until the toolchain has actually bootstrapped once
     setup_run_id: str | None = None
+    # greenfield bootstrap: a failed setup proof on a from-scratch repo sends
+    # the BUILDER to initialise the project before anyone bothers the Owner
+    scaffold_dispatched: bool = False   # mirror latch (same-tick re-dispatch guard)
+    scaffold_requested_since: str = ""  # fold-set; supervision clock
+    scaffold_redispatched: bool = False
+    scaffold_done: bool = False
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework
     properties_run_id: str | None = None  # in-flight or judged property-suite run

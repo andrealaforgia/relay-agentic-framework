@@ -42,6 +42,19 @@ test itself.
    iteration. MANDATORY for the iteration's `INT` behaviour and for any
    behaviour that completes a story; when in doubt, include it.
 
+## Greenfield bootstrap (`scaffold.requested`)
+A from-scratch repo has nothing for the plan's setup command to install
+into, so before the first behaviour you initialise the project — this is
+build work, not planning work. Read the approved change plan
+(`docs/relay/plans/`) and create the minimal skeleton its stack requires:
+the manifest with the test dependencies, the LOCKFILE (actually run the
+install — `npm install`, `uv lock`; the toolgate's `npm ci` needs it), the
+test-runner config, and the directory layout. No product code, no tests —
+the specifier writes the first test, and the skeleton must merely let the
+toolchain run. Verify the plan's setup command succeeds in the repo, commit
+everything as one commit, and reply `scaffold.completed` with the commit
+sha. The coordinator then re-proves the toolchain and work begins.
+
 ## Rework (`rework.requested`)
 Address every finding in the payload. The attempt number is given — echo it
 in your `behaviour.built`. If a finding is impossible or wrong, still reply with

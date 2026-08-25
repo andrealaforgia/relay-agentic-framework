@@ -1,7 +1,7 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `8439b2d8fb00aca77c3ad6d90453eca2b0937fc0fed33022c9c9ff227049d808`.
+Contract version 1, hash `39141978d4d84690c7acbac4f7b413f3d2bb9c3bbbbe40badbf700f44720ef0d`.
 
 ## Roles
 
@@ -23,9 +23,9 @@ Contract version 1, hash `8439b2d8fb00aca77c3ad6d90453eca2b0937fc0fed33022c9c9ff
 | plan | `planner>coordinator` | `error.raised`, `plan.committed` |
 | plan | `planner>interpreter` | `plan.drafted` |
 | work | `analyst>interpreter` | `questions.raised`, `recon.completed`, `stories.written` |
-| work | `builder>coordinator` | `behaviour.built`, `error.raised` |
+| work | `builder>coordinator` | `behaviour.built`, `error.raised`, `scaffold.completed` |
 | work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered` |
-| work | `coordinator>builder` | `build.requested`, `pause.ordered`, `resume.ordered`, `rework.requested` |
+| work | `coordinator>builder` | `build.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `scaffold.requested` |
 | work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `spec.requested` |
 | work | `interpreter>analyst` | `analysis.requested`, `answers.relayed` |
 | work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.satisfied`, `spec.written` |
@@ -98,6 +98,8 @@ One JSON Schema per type lives in `contract/schema/`.
 | `roadmap.rejected` | plan | `reasons` |
 | `run.completed` | run | `run_id`, `kind`, `commit_sha`, `exit_code`, `duration_s`, `output_digest` |
 | `run.requested` | run | `run_id`, `kind`, `commit_sha` |
+| `scaffold.completed` | work | `iteration_id`, `commit_sha` |
+| `scaffold.requested` | work | `iteration_id`, `detail` |
 | `session.started` | system | `role`, `session_ref` |
 | `spec.requested` | work | `behaviour_id`, `iteration_id`, `ac_text`, `kind`, `base_sha` |
 | `spec.satisfied` | work | `behaviour_id`, `test_paths`, `commit_sha`, `reason` |

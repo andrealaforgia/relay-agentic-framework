@@ -334,3 +334,12 @@ feedback.relayed:
 
 plan.approved:
   iteration_id: I1
+
+scaffold.requested:
+  iteration_id: I1
+  detail: "setup `npm ci && npx playwright install chromium` failed: npm error EUSAGE — no package.json/package-lock.json exists yet. Initialise the project per the approved plan's stack."
+
+scaffold.completed:
+  iteration_id: I1
+  commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+  summary: "Vite TS PWA skeleton: package.json + lockfile, playwright config, src/ and tests/ laid out per the plan."

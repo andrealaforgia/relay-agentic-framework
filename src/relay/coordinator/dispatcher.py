@@ -150,6 +150,40 @@ class Dispatcher:
         published += self._supervise_behaviours(state, now_s)
         published += self._supervise_story_and_iteration_gates(state, now_s)
         published += self._supervise_planning(state, now_s)
+        published += self._supervise_scaffold(state, now_s)
+        return published
+
+    def _supervise_scaffold(self, state: SwarmState, now_s: float) -> int:
+        """A dispatched scaffold is a wait like any other: overdue with no
+        completion -> one re-dispatch -> Owner escalation."""
+        published = 0
+        for iteration in state.iterations.values():
+            if (not iteration.started or iteration.aborted or iteration.escalated
+                    or not iteration.scaffold_requested_since or iteration.scaffold_done):
+                continue
+            if not self._overdue(iteration.scaffold_requested_since, now_s,
+                                 self._policy.dispatch_timeout_s):
+                continue
+            if not iteration.scaffold_redispatched:
+                iteration.scaffold_redispatched = True   # mirrored when the event folds
+                iteration.scaffold_requested_since = _iso(now_s)
+                self._publisher.send(
+                    COORDINATOR, "builder", "scaffold.requested",
+                    {"iteration_id": iteration.id,
+                     "detail": "re-dispatch: the first scaffold request went unanswered — "
+                               "initialise the project per the approved change plan"},
+                    iteration_id=iteration.id,
+                )
+                published += 1
+                continue
+            iteration.escalated = True
+            published += self._ask_owner(
+                state, iteration.id,
+                (f"the builder has not initialised the greenfield project for "
+                 f"{iteration.id} after two dispatches — check `relay tail builder`, "
+                 f"then reply exactly `retry {iteration.id}`"),
+                iteration_id=iteration.id,
+            )
         return published
 
     def _supervise_planning(self, state: SwarmState, now_s: float) -> int:
@@ -976,6 +1010,31 @@ class Dispatcher:
             return 0                                  # waiting on the toolgate
         if run.exit_code == 0 and not run.fault:
             return None
+        # Greenfield chicken-and-egg: the plan proposed a stack, but a
+        # from-scratch repo has nothing for `npm ci` to install into. That is
+        # not the Owner's problem — the BUILDER initialises the project from
+        # the plan, then the proof re-runs. Work must never stop before the
+        # first behaviour because the workshop assumed a project that does
+        # not exist yet.
+        nothing_built = not any(b.built_commit for b in state.behaviours.values())
+        if (state.intake_mode == "greenfield" and nothing_built
+                and not iteration.scaffold_dispatched):
+            iteration.scaffold_dispatched = True      # mirrored: no same-tick twin
+            self._publisher.send(
+                COORDINATOR, "builder", "scaffold.requested",
+                {"iteration_id": iteration.id,
+                 "detail": (f"the plan's setup command failed on the empty repo "
+                            f"({run.fault or f'exit {run.exit_code}'}: "
+                            f"{(run.summary or 'no output')[:400]}). Initialise the "
+                            f"project per the approved change plan's stack — "
+                            f"manifest with the test dependencies, lockfile, "
+                            f"test-runner config, directory layout — commit, and "
+                            f"reply scaffold.completed with the commit sha")},
+                iteration_id=iteration.id,
+            )
+            return 1
+        if iteration.scaffold_dispatched and not iteration.scaffold_done:
+            return 0                                  # waiting on the builder
         iteration.escalated = True
         return self._ask_owner(
             state, iteration.id,

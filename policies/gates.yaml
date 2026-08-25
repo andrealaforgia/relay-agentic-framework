@@ -19,7 +19,8 @@ wip_limit: 1
 max_attempts: 3
 
 # Plan mode: no behaviour is dispatched for an iteration until an
-# Owner-approved change plan (authored in `relay plan`) is committed as
+# Owner-approved change plan (drafted by the planner, refined and
+# approved in `relay chat`) is committed as
 # docs/relay/plans/<iteration>.md and announced on the bus. Fail closed.
 plan_required: true
 

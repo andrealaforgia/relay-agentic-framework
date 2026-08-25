@@ -9,8 +9,8 @@ relay chat                       # terminal 1 — the Interpreter, live
 relay watch                      # terminal 2 — activity board + event feed
 relay learn                      # taking over an existing codebase? do this first:
                                  # scan + interview its developers into docs/relay/knowledge/
-relay plan                       # when an iteration waits on a change plan: review,
-                                 # refine, approve — that approval unblocks the build
+                                 # (change plans need no extra window: the planner drafts,
+                                 # you refine and approve in relay chat)
 relay up . --tmux                # alternative: one tmux session, watch + per-role tails
 ```
 
@@ -54,7 +54,7 @@ its own clone of the target project, this framework installed
        --roles builder,specifier,toolgate
    # anywhere
    REDIS_HOST=hub.tailnet relay up ~/clones/myproject --swarm acme \
-       --roles coordinator,analyst,reviewer,qa,security
+       --roles coordinator,planner,analyst,reviewer,qa,security
    # your laptop: just the conversation
    REDIS_HOST=hub.tailnet relay chat --swarm acme
    ```

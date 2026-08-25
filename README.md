@@ -142,10 +142,10 @@ the interpreter presents the draft in your one conversation.
 |---|---|
 | `relay up <folder>` | start (auto-initialize on first run). `--roles builder,toolgate` for a subset, `--tmux` for a one-window board + tails, `--windows` (macOS) for one Terminal per assistant |
 | `relay down` | stop the processes; the ledger keeps everything — `relay up .` resumes exactly, even mid-behaviour, even after `kill -9` |
-| `relay watch` | the live board: per-assistant activity with elapsed time, behaviour states, event feed. `--events` shows every ledger event from the start as a table; `--tokens` shows live spend per role and per turn |
+| `relay watch` | the live board: the full assistant roster (workers alive/idle/DOWN, sessions, queued mail), behaviour states with the reason on every blocked row, event feed — sized to your terminal, finished work collapsing first. `--events` shows every ledger event from the start, swarm traffic and system telemetry in separate columns; `--tokens` shows live spend per role and per turn |
 | `relay tail <role>` | one assistant's log: every tool call and turn as it happens |
 | `relay costs` | what the engagement cost, folded from the ledger — per role, with cache warmth and cold starts. `--by-behaviour` attributes spend to work items instead |
-| `relay status` | ledger depth, dead-letter count, who is alive |
+| `relay status` | ledger depth, dead-letter count, who is alive (and who should be but isn't), the complete uncropped behaviour board, and what the swarm is waiting on |
 | `relay pause <role>` / `relay resume <role>` | freeze a role's work intake (mail parks safely) and release it |
 | `relay destroy` | remove every trace of a swarm — workers, ledger, Redis keys, local state (asks first; the project folder is untouched) |
 

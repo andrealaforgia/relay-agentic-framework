@@ -26,6 +26,7 @@ MISSING_COMMIT = "missing_commit"   # the sha to pin the worktree to is absent
 TIMEOUT = "timeout"                 # the command ran, but never finished
 MISSING_DEPENDENCY = "missing_dependency"  # the suite's own imports never resolved
 SETUP_FAILED = "setup_failed"       # the worktree bootstrap (npm ci, uv sync) died
+CONFIG_REFUSED = "config_refused"   # the command declined the request and ran nothing
 
 # Launchers that find their own subprocess and fail in their own words with
 # their own exit code, so the shell's 126/127 never reaches us: `uv run pytest`
@@ -41,6 +42,19 @@ SPAWN_SIGNATURES = (
     "cannot execute:",                                      # busybox sh
 )
 MAX_SIGNATURE_OUTPUT = 500
+
+# A runner that selects tests by behaviour can be handed a selection it cannot
+# honour: an identity it does not recognise, or a behaviour that owns no check
+# at all. It then runs NOTHING and says so, exiting 78 — the sysexits
+# convention for "your configuration is wrong", which no test framework uses to
+# report a failing assertion (go test exits 1 or 2, pytest 1-5).
+#
+# This is `not_executable` one layer up: there the command could not start,
+# here it started, understood the request, and declined it. Read as a red it
+# satisfies "prove the test fails first", sends a builder against a test nobody
+# saw fail, and burns an attempt each time round — and no retry makes a
+# misconfigured selection select something.
+EX_CONFIG = 78
 
 # The runner started but an import never resolved. This alone is NOT a fault:
 # an honest TDD red often dies on exactly this line, because the module that
@@ -126,6 +140,8 @@ def classify(exit_code: int, output: str, workspace: object | None = None) -> st
         return None
     if exit_code in (126, 127):
         return NOT_EXECUTABLE
+    if exit_code == EX_CONFIG:
+        return CONFIG_REFUSED
     lowered = output.lower()
     if len(output) <= MAX_SIGNATURE_OUTPUT \
             and any(signature in lowered for signature in SPAWN_SIGNATURES):

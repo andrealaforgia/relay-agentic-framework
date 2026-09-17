@@ -745,7 +745,8 @@ message_types:
         # Rust project — a non-zero exit that proved nothing at all.
         fault:
           type: string
-          enum: [not_executable, no_command, missing_commit, timeout, missing_dependency, setup_failed]
+          enum: [not_executable, no_command, missing_commit, timeout, missing_dependency,
+                 setup_failed, config_refused]
 
   # ── control ─────────────────────────────────────────────────────────────────
   pause.ordered:

@@ -243,7 +243,8 @@
         "missing_commit",
         "timeout",
         "missing_dependency",
-        "setup_failed"
+        "setup_failed",
+        "config_refused"
       ],
       "type": "string"
     },

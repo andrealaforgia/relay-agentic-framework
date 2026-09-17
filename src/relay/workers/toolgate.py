@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -29,6 +30,12 @@ from relay.workers import faults
 from relay.workers.base import CLAIM_STALE_AFTER_S, Worker
 
 RUN_TIMEOUT_S = 900
+
+# The identity the coordinator puts on every acceptance run, and the shape it
+# must have — the contract's BehaviourId, mirrored so a malformed one is caught
+# here rather than inside somebody's shell script.
+BEHAVIOUR_PLACEHOLDER = "{behaviour_id}"
+BEHAVIOUR_ID = re.compile(r"I\d+\.(S\d+\.(B\d+|CHAR\d+|INT)|INT)")
 
 
 class Toolgate(Worker):
@@ -79,6 +86,34 @@ class Toolgate(Worker):
                                   fault=faults.NO_COMMAND)
         test_paths = " ".join(shlex.quote(p) for p in payload.get("test_paths") or [])
         command = command.replace("{test_paths}", test_paths)
+
+        # The work item knows which behaviour the run is about. A runner that
+        # selects tests by behaviour must be told, or it has to infer the work
+        # from the paths — and behaviours routinely share a file, so the paths
+        # name no one. An identity that is missing, malformed, or contradicted
+        # by the envelope is a configuration fault, refused BEFORE the command
+        # runs: a command run against the wrong identity returns something
+        # shaped exactly like evidence.
+        if BEHAVIOUR_PLACEHOLDER in command:
+            identity = str(payload.get("behaviour_id") or "").strip()
+            routed_to = str(env.behaviour_id or "").strip()
+            if not identity:
+                complaint = ("the command selects by behaviour, but the work "
+                             "item carries no identity")
+            elif not BEHAVIOUR_ID.fullmatch(identity):
+                complaint = f"not a behaviour identity: {identity}"
+            elif routed_to and routed_to != identity:
+                complaint = (f"the work item names {identity}, but the result "
+                             f"is routed to {routed_to}")
+            else:
+                complaint = ""
+            if complaint:
+                return self._complete(
+                    env, exit_code=faults.EX_CONFIG, duration=0.0,
+                    output=f"the command was not run: {complaint}",
+                    fault=faults.CONFIG_REFUSED,
+                )
+            command = command.replace(BEHAVIOUR_PLACEHOLDER, identity)
 
         # every worktree is pristine: bootstrap it (npm ci, uv sync, ...) with
         # the plan's setup command before the run, or a suite dying on its own

@@ -236,6 +236,10 @@
       },
       "minItems": 1,
       "type": "array"
+    },
+    "instruction": {
+      "maxLength": 4000,
+      "type": "string"
     }
   },
   "required": [

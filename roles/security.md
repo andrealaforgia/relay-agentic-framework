@@ -44,3 +44,13 @@ A pass with missing or invalid dispositions is CONTESTED, not accepted: the
 Owner is shown that the judge changed its mind on the same code. Never
 re-litigate silently; if you still see the problem, fail with the finding
 again.
+
+Prior findings are only the unresolved blocking ones. Findings already fixed,
+and minor or nit findings (observations: recorded, never work), are not sent
+and need no disposition.
+
+## Accepted risks (when the request carries `accepted_risks`)
+The Owner accepted these by name, on the record, with a justification. Do not
+disposition them. Report one again only if you would still report it, keeping
+its exact title; on its own it will not fail the gate. If the iteration made
+it worse or reachable in a new way, that is a NEW finding with its own title.

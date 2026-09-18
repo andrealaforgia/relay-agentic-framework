@@ -71,6 +71,9 @@ class GateInfo:
     attempt: int = 0             # times this gate was re-dispatched (folded)
     commit_sha: str = ""         # the code this gate was asked to judge
     contested_reason: str = ""
+    # a failing verdict whose only blocking findings are risks the Owner
+    # accepted by name is honoured as a pass: these are those titles
+    accepted: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -124,6 +127,23 @@ class Behaviour:
     # escalation. Cleared by the Owner's retry — the toolchain is fixed by a
     # human, and no number of attempts will make a missing binary appear.
     infra_fault: str | None = None
+    # the rework in hand, as dispatched: a re-dispatch after a deadline must
+    # re-send exactly this, never a fresh build that forgets the findings
+    rework_findings: list[dict[str, object]] = field(default_factory=list)
+    rework_instruction: str = ""
+    # every dispatch event that asked for the CURRENT attempt: a reply naming
+    # any other was answering something superseded
+    dispatch_ids: list[str] = field(default_factory=list)
+    dispatch_attempt: int = 0            # the attempt dispatch_ids belong to
+    # what those dispatches were: "build" (names no attempt, so an echoed
+    # number proves nothing), "rework" (tells the builder its attempt) or
+    # "test_rework" (went to the specifier, whose reply is not a build)
+    dispatch_kind: str = ""
+    # a reply to the current attempt that arrived after escalation: kept for
+    # the Owner's retry to send to verification, never acted on by itself
+    late_completion: dict[str, str] | None = None
+    # replies that answered a superseded dispatch or attempt (event ids)
+    stale_replies: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -140,6 +160,7 @@ class Story:
     escalated: bool = False
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework
+    fix_instruction: str = ""           # the decision's own words: the rework's scope
 
     def gates_passed(self) -> bool:
         if self.gates_waived:
@@ -190,6 +211,7 @@ class Iteration:
     scaffold_done: bool = False
     gates_waived: bool = False          # the Owner's `drop`: proceed despite the gate
     fix_requested: bool = False         # the Owner's `fix`: findings become rework
+    fix_instruction: str = ""           # the decision's own words: the rework's scope
     properties_run_id: str | None = None  # in-flight or judged property-suite run
 
     def gates_passed(self) -> bool:
@@ -230,6 +252,14 @@ class SwarmState:
     # attached (keyed "subject|gate") until a verdict dispositions it — fresh
     # eyes can forget, the fold cannot. Each entry carries found_at (sha).
     open_findings: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    # everything a gate ever found that is no longer open work, same keys.
+    # Each entry carries `status`: fixed (with fixed_by), false_positive,
+    # risk_accepted (with justification) or observation (minor and nit
+    # findings, which are recorded but never dispatched as work).
+    finding_history: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    # risks the Owner accepted by name, per subject: title -> the finding as
+    # found, plus the Owner's justification. Only decision.made writes here.
+    accepted_risks: dict[str, dict[str, dict[str, object]]] = field(default_factory=dict)
     # a decision.made arrived that matched nothing open: re-ask immediately
     decision_mismatch: bool = False
     # last progress.reported announced, as (iteration_id, behaviours_done) — derived

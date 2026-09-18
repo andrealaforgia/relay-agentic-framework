@@ -223,6 +223,12 @@
   },
   "additionalProperties": false,
   "properties": {
+    "accepted_risks": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "type": "array"
+    },
     "base_sha": {
       "$ref": "#/$defs/GitSha"
     },

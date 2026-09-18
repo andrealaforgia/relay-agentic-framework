@@ -223,6 +223,32 @@
   },
   "additionalProperties": false,
   "properties": {
+    "accepted_risks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "justification": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_id",
+          "title",
+          "justification"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "comment": {
       "type": "string"
     },

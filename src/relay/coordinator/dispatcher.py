@@ -231,6 +231,11 @@ class Dispatcher:
         return [_sanitize_finding(f)
                 for f in state.open_findings.get(findings_key(subject_id, gate), [])]
 
+    def _accepted_findings(self, state: SwarmState, subject_id: str) -> list[dict[str, object]]:
+        """The risks the Owner accepted on this subject, for the judge to see."""
+        return [_sanitize_finding(f)
+                for f in state.accepted_risks.get(subject_id, {}).values()]
+
     def _collect_findings(self, state: SwarmState, subject_prefix: str) -> list[dict[str, object]]:
         collected: list[dict[str, object]] = []
         for key, findings in state.open_findings.items():
@@ -287,29 +292,35 @@ class Dispatcher:
         for story in state.stories.values():
             if story.fix_requested:
                 published += self._reopen_with_findings(
-                    state, story.int_behaviour_id, self._collect_findings(state, story.id))
+                    state, story.int_behaviour_id, self._collect_findings(state, story.id),
+                    story.fix_instruction)
                 story.fix_requested = False
+                story.fix_instruction = ""
         for iteration in state.iterations.values():
             if iteration.fix_requested:
                 published += self._reopen_with_findings(
                     state, iteration.int_behaviour_id,
-                    self._collect_findings(state, iteration.id))
+                    self._collect_findings(state, iteration.id), iteration.fix_instruction)
                 iteration.fix_requested = False
+                iteration.fix_instruction = ""
         return published
 
     def _reopen_with_findings(
-        self, state: SwarmState, behaviour_id: str, findings: list[dict[str, object]]
+        self, state: SwarmState, behaviour_id: str, findings: list[dict[str, object]],
+        instruction: str = "",
     ) -> int:
+        """Only unresolved blocking findings are work. With none left, there
+        is nothing to hand a builder: the gate simply runs again (the
+        decision already cleared it), rather than inventing a finding."""
         b = state.behaviours.get(behaviour_id)
-        if b is None:
+        if b is None or not findings:
             return 0
-        if not findings:
-            findings = [{"title": "gate findings to address",
-                         "detail": "see the failed gate verdicts on the ledger",
-                         "severity": "major", "source": "coordinator"}]
+        payload: dict[str, object] = {
+            "behaviour_id": b.id, "attempt": b.attempt + 1, "findings": findings}
+        if instruction:
+            payload["instruction"] = instruction[:4000]
         self._publisher.send(
-            COORDINATOR, "builder", "rework.requested",
-            {"behaviour_id": b.id, "attempt": b.attempt + 1, "findings": findings},
+            COORDINATOR, "builder", "rework.requested", payload,
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
         )
         b.state = BehaviourState.BUILD_DISPATCHED
@@ -429,6 +440,19 @@ class Dispatcher:
             return self._request_run(state, b, RunPurpose.SATISFIED_CHECK)
         if b.state == BehaviourState.AT_RUN_PENDING:
             return self._request_run(state, b, RunPurpose.AT_GREEN)
+        if b.state == BehaviourState.BUILD_DISPATCHED and b.rework_findings:
+            # the rework in hand, again: same attempt, same findings, same
+            # scope. A fresh build request here once sent a builder back to an
+            # old job and dropped everything the rework said.
+            payload: dict[str, object] = {"behaviour_id": b.id, "attempt": b.attempt,
+                                          "findings": b.rework_findings}
+            if b.rework_instruction:
+                payload["instruction"] = b.rework_instruction
+            self._publisher.send(
+                COORDINATOR, "builder", "rework.requested", payload,
+                behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
+            )
+            return 1
         if b.state == BehaviourState.BUILD_DISPATCHED:
             self._publisher.send(
                 COORDINATOR, "builder", "build.requested",
@@ -479,6 +503,7 @@ class Dispatcher:
                     "base_sha": _require(base, "gate base"),
                     **({"run_id": run_id} if run_id else {}),
                     **_with_prior(self._prior_findings(state, subject_id, g.gate)),
+                    **_with_accepted(self._accepted_findings(state, subject_id)),
                 },
                 gate_id=gate_id, commit_sha=commit,
             )
@@ -974,6 +999,7 @@ class Dispatcher:
                     "commit_sha": _require(b.built_commit, "built_commit"),
                     "base_sha": _require(b.base_sha, "base_sha"),
                     **_with_prior(self._prior_findings(state, b.id, spec.gate)),
+                    **_with_accepted(self._accepted_findings(state, b.id)),
                 },
                 behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
                 gate_id=gate_id, commit_sha=b.built_commit,
@@ -1296,6 +1322,7 @@ class Dispatcher:
                         "base_sha": base,
                         "run_id": story.mutation_run_id,
                         **_with_prior(self._prior_findings(state, story.id, spec.gate)),
+                        **_with_accepted(self._accepted_findings(state, story.id)),
                     },
                     story_id=story.id, iteration_id=story.iteration_id,
                     gate_id=gate_id, commit_sha=last_commit,
@@ -1394,6 +1421,7 @@ class Dispatcher:
                         "commit_sha": last_commit,
                         "base_sha": base,
                         **_with_prior(self._prior_findings(state, iteration.id, spec.gate)),
+                        **_with_accepted(self._accepted_findings(state, iteration.id)),
                     },
                     iteration_id=iteration.id, gate_id=gate_id, commit_sha=last_commit,
                 )
@@ -1466,6 +1494,10 @@ _FINDING_KEYS = ("severity", "title", "detail", "file", "line", "source")
 
 def _with_prior(findings: list[dict[str, object]]) -> dict[str, object]:
     return {"prior_findings": findings} if findings else {}
+
+
+def _with_accepted(findings: list[dict[str, object]]) -> dict[str, object]:
+    return {"accepted_risks": findings} if findings else {}
 
 
 def _sanitize_finding(f: dict[str, object]) -> dict[str, object]:

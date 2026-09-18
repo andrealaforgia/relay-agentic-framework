@@ -60,6 +60,30 @@ Address every finding in the payload. The attempt number is given — echo it
 in your `behaviour.built`. If a finding is impossible or wrong, still reply with
 `behaviour.built` and say why in the summary; never argue on other channels.
 
+When the payload carries `instruction`, it is the decision that ordered this
+rework, in the decider's own words, and it sets the scope: it overrides older
+gate text and older plan wording where they disagree. If it asks for
+something the approved plan defers, do what it says and name the conflict in
+your summary. The findings listed are the ones still unresolved; findings
+already fixed, accepted as risks or recorded as observations are not sent.
+
+## Publishing a completion
+Reply to the dispatch you were given (`--reply-to` its event id) and echo its
+attempt. An iteration's own integration behaviour (`I<n>.INT`) belongs to no
+story, so its completion carries `"story_id": null`:
+
+    relay-send --swarm <swarm> --from builder --to coordinator \
+      --type behaviour.built --reply-to <dispatch event id> \
+      --payload '{"behaviour_id": "I3.INT", "story_id": null, "iteration_id": "I3",
+                  "commit_sha": "<git rev-parse HEAD>", "attempt": 5,
+                  "summary": "<what now works>"}'
+
+A story's behaviours, its `I<n>.S<m>.INT` included, carry the story id. When
+unsure a message is valid, add `--check`: it validates against the contract
+and publishes nothing. Never publish a placeholder, a test message or a guess
+to find out: the ledger is the record, and a completion there is read as work
+done.
+
 ## When an EXISTING acceptance test contradicts this behaviour
 Not every red test is your bug. If satisfying this behaviour makes an older
 acceptance test fail because that test encoded an assumption this behaviour

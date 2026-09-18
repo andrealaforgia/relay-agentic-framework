@@ -31,6 +31,10 @@ def main() -> int:
     parser.add_argument("--behaviour", default=None)
     parser.add_argument("--gate", default=None)
     parser.add_argument("--commit", default=None)
+    parser.add_argument(
+        "--check", action="store_true",
+        help="validate against the contract and publish nothing; never probe "
+             "the ledger with a placeholder message to find a valid shape")
     args = parser.parse_args()
 
     try:
@@ -39,7 +43,17 @@ def main() -> int:
         print(f"payload is not valid JSON: {e}", file=sys.stderr)
         return 2
 
-    publisher = Publisher(get_client(), ContractValidator(load_contract()), args.swarm)
+    validator = ContractValidator(load_contract())
+    if args.check:
+        try:
+            validator.validate_payload(args.type_, payload)
+        except ContractError as e:
+            _explain(e, args.type_, payload)
+            return 1
+        print(f"valid '{args.type_}': nothing was published")
+        return 0
+
+    publisher = Publisher(get_client(), validator, args.swarm)
     try:
         result = publisher.send(
             args.from_role,
@@ -54,17 +68,30 @@ def main() -> int:
             commit_sha=args.commit,
         )
     except ContractError as e:
-        print(str(e), file=sys.stderr)
-        # say what a valid one looks like, so the fix is in this turn and not
-        # in a filesystem search
-        from relay.contract.cheatsheet import required_fields
-
-        needed = required_fields(load_contract(), args.type_)
-        if needed:
-            print(f"'{args.type_}' requires: {', '.join(needed)}", file=sys.stderr)
+        _explain(e, args.type_, payload)
         return 1
     print(json.dumps({"event_id": result.event_id, "seq": result.seq, "stream_id": result.stream_id}))
     return 0
+
+
+def _explain(error: ContractError, type_: str, payload: object) -> None:
+    """Say what a valid message looks like, so the fix is in this turn and
+    not in a filesystem search or a probe of the live ledger."""
+    print(str(error), file=sys.stderr)
+    from relay.contract.cheatsheet import required_fields
+
+    needed = required_fields(load_contract(), type_)
+    if needed:
+        print(f"'{type_}' requires: {', '.join(needed)}", file=sys.stderr)
+    if type_ == "behaviour.built" and "story_id" in str(error):
+        behaviour = payload.get("behaviour_id") if isinstance(payload, dict) else None
+        print(
+            'an iteration-level behaviour (I<n>.INT) belongs to no story: send '
+            '"story_id": null. A story\'s own behaviours, its I<n>.S<m>.INT '
+            'included, send that story\'s id, e.g. "I<n>.S<m>".'
+            + (f" This one is {behaviour}." if behaviour else ""),
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

@@ -352,6 +352,9 @@ def _error_raised(state: SwarmState, env: Envelope) -> None:
         b.error_reported = detail
 
 
+_ERROR_ASK = "assistant reported an error on "
+
+
 def _decision_requested(state: SwarmState, env: Envelope) -> None:
     gate_id = str(env.payload["gate_id"])
     existing = state.decisions.get(gate_id)
@@ -359,6 +362,23 @@ def _decision_requested(state: SwarmState, env: Envelope) -> None:
         # a nudge that crossed the answer in flight (or a stale runtime's):
         # the decision is settled — it must not re-escalate anything
         return
+    subject = str(env.payload.get("subject_id") or "")
+    b = state.behaviours.get(subject)
+    if b is not None and str(env.payload.get("reason") or "").startswith(
+            f"{_ERROR_ASK}{subject}:"):
+        if b.error_reported is None and existing is None:
+            # asked about an error with no report pending: that report was
+            # already asked about, and the Owner's answer stands. A restarted
+            # coordinator whose fold still carried the report asked again;
+            # the repeat must not undo the decision that moved the behaviour.
+            state.decisions[gate_id] = DecisionInfo(
+                gate_id=gate_id, subject_id=subject,
+                reason=str(env.payload.get("reason", "")),
+                since=env.ts, last_ask=env.ts, closed=True)
+            return
+        # the live coordinator clears the report when it asks; the fold must
+        # too, or every restart asks about it again
+        b.error_reported = None
     _owner_decision_needed(state, env)
     source = env.payload.get("source_event_id")
     if source:

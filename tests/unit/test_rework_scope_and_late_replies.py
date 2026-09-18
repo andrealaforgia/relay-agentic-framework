@@ -185,3 +185,53 @@ def test_drop_discards_a_kept_late_reply(client, publisher) -> None:
     b = swarm.behaviour("I1.INT")
     assert b.state == BehaviourState.DONE
     assert b.late_completion is None
+
+
+# ── an error, once asked about, is not asked about again after a restart ─────
+
+ERROR_NOTE = ("Correction to an earlier completion: its how_to_run was wrong; "
+              "corrected command verified by running it.")
+
+
+def _error_answered(client, publisher) -> MiniSwarm:
+    """A builder reports an error on I1.INT while it is being built; the
+    coordinator asks the Owner, who answers retry."""
+    swarm = _fixed(client, publisher)
+    publisher.send("builder", "coordinator", "error.raised",
+                   {"behaviour_id": "I1.INT", "kind": "other", "detail": ERROR_NOTE},
+                   behaviour_id="I1.INT")
+    swarm.pump()
+    assert swarm.behaviour("I1.INT").state == BehaviourState.BLOCKED
+    _answer(swarm, "I1.INT", "retry")
+    return swarm
+
+
+def _error_asks(swarm: MiniSwarm) -> list[str]:
+    return [a.payload["gate_id"] for a in swarm.sent("decision.requested")
+            if a.payload["subject_id"] == "I1.INT"
+            and "assistant reported an error" in a.payload["reason"]]
+
+
+def test_a_restart_never_re_asks_an_answered_error(client, publisher) -> None:
+    swarm = _error_answered(client, publisher)
+    asked = len(_error_asks(swarm))
+    fresh = MiniSwarm(client, publisher, policy=swarm.dispatcher._policy)
+    fresh.pump()
+    assert len(_error_asks(fresh)) == asked
+    assert fresh.behaviour("I1.INT").error_reported is None
+    assert fresh.behaviour("I1.INT").state != BehaviourState.BLOCKED
+
+
+def test_a_repeated_ask_about_an_answered_error_blocks_nothing(client, publisher) -> None:
+    """Replay of I3.INT at seq 13892: a restarted coordinator whose fold kept
+    an answered error asked about it again the moment the behaviour moved.
+    That repeat must not undo the Owner's decision that moved it."""
+    swarm = _error_answered(client, publisher)
+    before = swarm.behaviour("I1.INT").state
+    repeat = "gate-01M2T00PG4JRYY4BFTTZC5BD7S"
+    publisher.send("coordinator", "interpreter", "decision.requested",
+                   {"gate_id": repeat, "subject_id": "I1.INT",
+                    "reason": f"assistant reported an error on I1.INT: {ERROR_NOTE}"})
+    swarm.pump()
+    assert swarm.behaviour("I1.INT").state == before
+    assert swarm.state.decisions[repeat].closed

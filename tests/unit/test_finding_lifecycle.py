@@ -231,3 +231,16 @@ def test_an_accepted_risk_never_excuses_a_new_blocking_finding(client, publisher
     assert swarm.sent("iteration.finished") == []
     assert swarm.state.iterations["I1"].int_behaviour_id
     assert swarm.behaviour("I1.INT").state == BehaviourState.DONE
+
+
+def test_a_verified_fix_of_an_observation_is_recorded_as_a_fix(client, publisher) -> None:
+    """Two of the three findings the re-run confirmed fixed were minor: the
+    record must say they were fixed, and by what, not merely observed."""
+    swarm = _after_partial_fix(client, publisher)
+    key = findings_key("I1", "security")
+    status = {f["title"]: f for f in swarm.state.finding_history[key]}
+    by_title = {d["title"]: d for d in PARTIAL["dispositions"]}
+    for title in FIXED:
+        assert status[title]["status"] == "fixed", title
+        assert status[title]["fixed_by"] == by_title[title]["commit_sha"]
+    assert {t for t, f in status.items() if f["status"] == "observation"} == MINORS - FIXED

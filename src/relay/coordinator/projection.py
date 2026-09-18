@@ -802,6 +802,7 @@ def _settle_dispositions(state: SwarmState, key: str, gate: GateInfo, env: Envel
             continue
         f = next((x for x in known if x.get("title") == d.get("title")), None)
         if f is None:
+            _settle_observation(state, key, d)
             continue
         settled = dict(f)
         if d.get("disposition") == "fixed":
@@ -818,6 +819,18 @@ def _settle_dispositions(state: SwarmState, key: str, gate: GateInfo, env: Envel
             continue
         known.remove(f)
         state.finding_history.setdefault(key, []).append(settled)
+
+
+def _settle_observation(state: SwarmState, key: str, d: dict[str, object]) -> None:
+    """An observation is never work, but a verified fix of one is still a
+    fix: the record says so, and by which commit."""
+    if d.get("disposition") != "fixed" or not d.get("commit_sha"):
+        return
+    for f in state.finding_history.get(key, []):
+        if (f.get("title") == d.get("title") and f.get("status") == "observation"
+                and d.get("commit_sha") != f.get("found_at")):
+            f["status"] = "fixed"
+            f["fixed_by"] = str(d["commit_sha"])
 
 
 def _accept_risks(state: SwarmState, env: Envelope) -> None:

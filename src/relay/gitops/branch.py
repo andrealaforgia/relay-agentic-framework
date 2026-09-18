@@ -42,6 +42,19 @@ def ensure_iteration_branch(project: Path, swarm: str, iteration_id: str) -> str
     return head_sha(project)
 
 
+def ensure_work_branch(project: Path, swarm: str, iteration_id: str, trunk: str) -> str:
+    """Check out the branch this iteration's work lands on and return its head.
+
+    With a trunk named, that is the trunk itself: it must already exist, and
+    no other branch is ever created. Without one, the iteration's own branch.
+    """
+    if not trunk:
+        return ensure_iteration_branch(project, swarm, iteration_id)
+    _git(project, "rev-parse", "--verify", "--quiet", f"refs/heads/{trunk}")
+    _git(project, "checkout", "-q", trunk)
+    return head_sha(project)
+
+
 def has_history(project: Path) -> bool:
     """A pre-existing codebase = more than the `relay init` scaffolding commit."""
     try:

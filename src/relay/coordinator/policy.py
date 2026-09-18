@@ -52,6 +52,11 @@ class Policy:
     # as a deterministic gate per story or per iteration. "off" | "story" |
     # "iteration". Failures become rework with the counterexample attached.
     properties: str = "off"
+    # Trunk-based working: the name of the one branch every iteration's work
+    # lands on directly. Set, the coordinator never creates an iteration
+    # branch and never opens a pull request. Empty keeps a branch per
+    # iteration, landed by pull request.
+    trunk: str = ""
 
     @staticmethod
     def load(path: Path) -> "Policy":
@@ -80,4 +85,5 @@ class Policy:
             dispatch_timeout_s=int(raw.get("dispatch_timeout_s", 2700)),
             decision_nudge_s=int(raw.get("decision_nudge_s", 1800)),
             properties=str(raw.get("properties", "off")),
+            trunk=str(raw.get("trunk") or ""),
         )

@@ -49,7 +49,7 @@ class Coordinator:
             self.publisher,
             policy,
             GitHooks(
-                ensure_branch=lambda it: gitops.ensure_iteration_branch(project, swarm, it),
+                ensure_branch=lambda it: gitops.ensure_work_branch(project, swarm, it, policy.trunk),
                 head_sha=lambda: gitops.head_sha(project),
                 has_history=lambda: gitops.has_history(project),
                 create_pr=lambda it: pr_mod.create_pr(

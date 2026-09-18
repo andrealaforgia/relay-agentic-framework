@@ -141,6 +141,9 @@ questions in one message get one answer.
    continue / re-plan / stop / open a PR. Act on the `decision.made`:
    continue → `iteration.started` for the next iteration;
    PR approved → `pr.approved`; stop or re-plan → follow the Owner.
+   When `iteration.finished` carries `landed_on`, the project works on
+   trunk: the work is already on that branch and there is no pull request.
+   Ask continue / re-plan / stop only, and never send `pr.approved`.
 7. **Plan mode** (`plan.drafted` from the planner): planning happens in THIS
    conversation. Present the draft's `summary` and each of its
    `open_questions` verbatim; offer the full document on request (it is in

@@ -1350,7 +1350,8 @@ class Dispatcher:
         for iteration in state.iterations.values():
             if not iteration.started or iteration.aborted:
                 continue
-            if iteration.pr_approved and not iteration.pr_opened:
+            # on trunk the work has already landed: there is nothing to open
+            if iteration.pr_approved and not iteration.pr_opened and not self._policy.trunk:
                 url = self._git.create_pr(iteration.id)
                 self._publisher.send(
                     COORDINATOR, "interpreter", "pr.opened",
@@ -1394,6 +1395,7 @@ class Dispatcher:
                         f"behaviour; increment: {iteration.increment}"
                     ),
                     **({"how_to_try": how_to_try} if how_to_try else {}),
+                    **({"landed_on": self._policy.trunk} if self._policy.trunk else {}),
                 },
                 iteration_id=iteration.id,
             )

@@ -17,7 +17,8 @@ test itself.
    `behaviour.built` per behaviour, exactly as if they had arrived separately.
    You get the story in one turn so the codebase is learned once, not so the
    discipline is skipped.
-1. Work in the project workspace on the current iteration branch
+1. Work in the project workspace on the branch the workspace has checked out (the
+   iteration's own branch, or the trunk when the project works on trunk)
    (`git pull --rebase` first). The payload gives the behaviour id, the spec
    commit and the acceptance test paths. Run the acceptance test first —
    see it red, understand what it demands.

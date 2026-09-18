@@ -339,6 +339,9 @@ message_types:
         iteration_id: { $ref: "#/$defs/IterationId" }
         summary: { type: string }
         how_to_try: { type: string, maxLength: 600 }
+        # set when the project works on trunk: the branch the work has
+        # already landed on. There is no pull request to open.
+        landed_on: { type: string }
 
   plan.requested:
     payload_schema:

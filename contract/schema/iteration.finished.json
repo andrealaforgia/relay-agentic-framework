@@ -230,6 +230,9 @@
     "iteration_id": {
       "$ref": "#/$defs/IterationId"
     },
+    "landed_on": {
+      "type": "string"
+    },
     "summary": {
       "type": "string"
     }

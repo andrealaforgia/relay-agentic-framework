@@ -611,6 +611,13 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
         return
 
     b = state.behaviours.get(subject)
+    if info is not None and b is None and story is None and iteration is None:
+        # an error reported about no work item in particular (subject
+        # "swarm"): nothing is blocked, so the Owner's answer settles the
+        # question itself. Flagging it as matching nothing re-asked it for ever.
+        if decision in ("retry", "drop", "fix"):
+            info.closed = True
+        return
     if b is None or b.state != BehaviourState.BLOCKED:
         # A sibling answer may already have resolved this subject — twin asks
         # exist wherever an escalation was re-sent. Absorb the answer by

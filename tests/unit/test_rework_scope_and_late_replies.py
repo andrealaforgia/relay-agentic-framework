@@ -235,3 +235,31 @@ def test_a_repeated_ask_about_an_answered_error_blocks_nothing(client, publisher
     swarm.pump()
     assert swarm.behaviour("I1.INT").state == before
     assert swarm.state.decisions[repeat].closed
+
+
+# ── an error that belongs to no work item can still be answered ─────────────
+
+def test_an_error_about_the_whole_swarm_can_be_closed(client, publisher) -> None:
+    """Replay of prova-lang's nine historical errors: an assistant's error that
+    names no behaviour is asked about with subject "swarm". There is nothing
+    for the answer to unblock, so every answer, retry or drop, was reported
+    as matching nothing and the question was asked again, for days."""
+    swarm = MiniSwarm(client, publisher)
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
+                   {"roadmap": __import__("test_coordinator").ROADMAP,
+                    "intake": {"mode": "greenfield"}})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
+    publisher.send("planner", "coordinator", "error.raised",
+                   {"kind": "other", "detail": "Duplicate plan request for I1."})
+    swarm.pump()
+    (ask,) = [a for a in swarm.sent("decision.requested") if a.payload["subject_id"] == "swarm"]
+    asks_before = len(swarm.sent("decision.requested"))
+
+    publisher.send("interpreter", "coordinator", "decision.made",
+                   {"gate_id": ask.payload["gate_id"], "subject_id": "swarm",
+                    "decision": "drop", "comment": "historical"})
+    swarm.pump()
+
+    assert swarm.state.decisions[ask.payload["gate_id"]].closed
+    assert not swarm.state.decision_mismatch
+    assert len(swarm.sent("decision.requested")) == asks_before   # nothing re-asked

@@ -678,6 +678,9 @@ def _rework_requested(state: SwarmState, env: Envelope) -> None:
         b.rework_findings = list(found) if to_builder and isinstance(found, list) else []
         b.rework_instruction = str(env.payload.get("instruction") or "") if to_builder else ""
         b.late_completion = None
+        # the conflict that caused this rework is answered once the rework is
+        # on the ledger: clear it so a replayed coordinator never re-routes it
+        b.spec_conflict = None
         b.pending_gates.clear()
         # a story-level gate failure loops back through this behaviour: the
         # story must re-earn its gates on the next completion

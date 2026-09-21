@@ -788,6 +788,17 @@ class Dispatcher:
         ]
 
         published = 0
+        # A contradicting acceptance test does not care what state the
+        # behaviour reached: the builder finds it while building something
+        # else, and reports it against whatever it was working on. Skipping
+        # terminal behaviours here left those reports stored and unrouted,
+        # invisible, while the swarm asked the Owner about something else.
+        # _advance_one clears the conflict as it routes it, so a finished
+        # behaviour is reconsidered exactly once and only for this.
+        for b in behaviours:
+            if b.state in TERMINAL_STATES and b.spec_conflict is not None:
+                published += self._advance_one(state, b)
+
         for b in in_flight:
             published += self._advance_one(state, b)
 

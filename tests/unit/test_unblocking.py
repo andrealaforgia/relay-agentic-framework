@@ -89,3 +89,61 @@ def test_an_ordinary_error_still_reaches_the_owner(client, publisher) -> None:
                     "detail": "branch diverged"}, behaviour_id="I1.S1.B1")
     mini.pump()
     assert mini.sent("decision.requested"), "a stuck assistant is still escalated"
+
+
+# I4, prova-lang: the builder twice reported that an older acceptance fixture
+# contradicted the new verifier. Both reports landed on behaviours already
+# DONE, so `_error_raised` stored the conflict and `_advance_behaviours` —
+# which skips terminal behaviours before `_advance_one` ever sees them — never
+# routed it. The signal sat in state while the Owner was asked, for hours,
+# about something else entirely. A conflict must stay actionable wherever it
+# lands, and must act exactly once.
+
+
+def _finished(client, publisher, bid, final) -> MiniSwarm:
+    mini = MiniSwarm(client, publisher)
+    publisher.send("interpreter", "coordinator", "roadmap.committed",
+                   {"roadmap": ROADMAP, "intake": {"mode": "greenfield"}})
+    publisher.send("interpreter", "coordinator", "iteration.started", {"iteration_id": "I1"})
+    mini.pump()
+    mini.state.behaviours[bid].state = final
+    return mini
+
+
+def _raise_conflict(publisher, bid="I1.S1.B1") -> None:
+    publisher.send("builder", "coordinator", "error.raised",
+                   {"behaviour_id": bid, "kind": "spec_conflict",
+                    "detail": "B23 E5 asserts a contract that is false at amount zero; "
+                              "the verifier is right to refuse it"},
+                   behaviour_id=bid)
+
+
+def test_a_conflict_on_a_done_behaviour_is_still_routed(client, publisher) -> None:
+    swarm = _finished(client, publisher, "I1.S1.B1", BehaviourState.DONE)
+    _raise_conflict(publisher)
+    swarm.pump()
+
+    rework = swarm.sent("rework.requested")
+    assert rework, "a conflict reported after the behaviour finished still reaches someone"
+    assert rework[-1].to_role == "specifier"
+    assert "false at amount zero" in rework[-1].payload["findings"][0]["detail"]
+    assert swarm.behaviour("I1.S1.B1").state != BehaviourState.DONE
+
+
+def test_a_conflict_on_a_blocked_behaviour_is_still_routed(client, publisher) -> None:
+    swarm = _finished(client, publisher, "I1.S1.B1", BehaviourState.BLOCKED)
+    _raise_conflict(publisher)
+    swarm.pump()
+    assert swarm.sent("rework.requested"), "BLOCKED is not a place conflicts go to die"
+
+
+def test_a_conflict_on_a_finished_behaviour_acts_exactly_once(client, publisher) -> None:
+    swarm = _finished(client, publisher, "I1.S1.B1", BehaviourState.DONE)
+    _raise_conflict(publisher)
+    swarm.pump()
+    swarm.pump()
+    assert len(swarm.sent("rework.requested")) == 1, "pumping again must not duplicate the work"
+
+    fresh = MiniSwarm(client, publisher)
+    fresh.pump()
+    assert len(fresh.sent("rework.requested")) == 1, "nor may a cold restart replay it"

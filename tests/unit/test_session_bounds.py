@@ -56,3 +56,17 @@ def test_session_turn_cap_forces_rotation(client, publisher, tmp_path) -> None:
     assert seen[0] is None
     assert all(s is not None for s in seen[1:MAX_SESSION_TURNS])  # resumed up to the cap
     assert seen[MAX_SESSION_TURNS] is None                        # cap: fresh session
+
+
+def test_story_review_uses_the_reviewed_commit(client,publisher,tmp_path,monkeypatch):
+    import yaml
+    from relay.contract.envelope import Envelope
+    worker=_worker(client,publisher,tmp_path,[])
+    payload=yaml.safe_load((ROLES_DIR.parent/'contract/examples.yaml').read_text())['story.verification.review.requested']
+    request=Envelope.model_validate({'swarm':'testswarm','from':'coordinator','to':'qa','type':'story.verification.review.requested',
+        'plane':'gate','contract_hash':worker.validator.contract.contract_hash,'payload':payload})
+    pinned=[]
+    monkeypatch.setattr(worker,'_handle_in_pinned_worktree',lambda env: pinned.append(env.payload['commit_sha']) or 'done')
+    monkeypatch.setattr(worker,'_run_turn_loop',lambda *args: 'not pinned')
+    worker.handle(request)
+    assert pinned==[payload['commit_sha']]

@@ -38,7 +38,7 @@ STATE_WAITS_ON: dict[BehaviourState, str] = {
 }
 
 GATE_ROLE: dict[str, str] = {
-    "code_review": "reviewer", "test_design": "qa",
+    "code_review": "reviewer", "codex_review": "codex_reviewer", "test_design": "qa",
     "mutation": "qa", "security": "security",
 }
 

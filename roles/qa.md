@@ -55,3 +55,14 @@ A pass with missing or invalid dispositions is CONTESTED, not accepted: the
 Owner is shown that the judge changed its mind on the same code. Never
 re-litigate silently; if you still see the problem, fail with the finding
 again.
+
+## Property verification review
+
+On `story.verification.review.requested`, review the pinned property-test commit
+against the original expectations and questions. Check that every question has
+an executable check, the domain and generation bounds match its scope, and a
+plausible faulty implementation would fail. Challenge tautologies, implementation
+mirrors, mocks of the subject, skipped tests and vacuous generators. Product code
+may not exist yet; failing for missing behaviour is appropriate at this point.
+Publish `story.verification.reviewed` with the story/version, `pass` or `fail`,
+and a specific reason. Do not approve a question merely because a file exists.

@@ -9,6 +9,26 @@ specify, code, and review. Everything else — sequencing, gate accounting, stat
 progress, resume — is plain code folding over an append-only event stream. No rule ever
 depends on a model remembering it.
 
+## Expectation-driven delivery
+
+New roadmaps use delivery protocol 2: the analyst records expectations and property
+questions before implementation, the specifier writes property checks, and QA
+reviews them. Completion requires an execution receipt from actual execution at one
+candidate commit and a supported answer to every original question. Missing,
+skipped, stale or inconsistent evidence cannot complete the story.
+
+The initial receipt adapter supports pytest. Configure an isolated runner image before starting a protocol-2 engagement.
+No receipt signing keys are required. Historical roadmaps retain their legacy semantics. See
+[setup, trust boundaries, inspection and migration](docs/EXPECTATION-DRIVEN-DEVELOPMENT.md).
+`relay evidence I1.S1` shows the complete expectation-to-evidence chain.
+
+## Claude and Codex
+
+Keep Claude for building and review, and optionally add a parallel Codex review
+after each implemented expectation.
+Relay forwards complete reviews to the interpreter and blocks completion on failed
+gates. See [configuration and review delivery](docs/CODEX-REVIEWS.md).
+
 ## The shape
 
 Everything rides one Redis Stream per swarm — simultaneously message bus, append-only

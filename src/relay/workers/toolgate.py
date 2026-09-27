@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 import redis
 
@@ -67,6 +68,9 @@ class Toolgate(Worker):
     def handle(self, env: Envelope) -> str | None:
         if env.type != "run.requested":
             return None
+        if env.payload.get("kind") == "evidence":
+            from relay.workers.evidence_runner import execute
+            return execute(self, env)
         payload = env.payload
         run_id = str(payload["run_id"])
         kind = str(payload["kind"])
@@ -126,10 +130,7 @@ class Toolgate(Worker):
             gitops.add_detached_worktree(self.project, sha, worktree)
             try:
                 if setup and kind != "setup":
-                    boot = subprocess.run(
-                        setup, shell=True, cwd=worktree, env=self.env,
-                        capture_output=True, text=True, timeout=RUN_TIMEOUT_S,
-                    )
+                    boot = self._execute_command(setup, worktree)
                     if boot.returncode != 0:
                         return self._complete(
                             env, exit_code=boot.returncode,
@@ -138,12 +139,12 @@ class Toolgate(Worker):
                                    + boot.stdout + boot.stderr,
                             fault=faults.SETUP_FAILED,
                         )
-                proc = subprocess.run(
-                    command, shell=True, cwd=worktree, env=self.env,
-                    capture_output=True, text=True, timeout=RUN_TIMEOUT_S,
-                )
+                proc = self._execute_command(command, worktree)
                 exit_code, output = proc.returncode, proc.stdout + proc.stderr
                 fault = faults.classify(exit_code, output, workspace=worktree)
+            except (ValueError, OSError) as error:
+                exit_code, output = 78, str(error)
+                fault = faults.CONFIG_REFUSED
             except subprocess.TimeoutExpired:
                 exit_code, output = 124, f"timed out after {RUN_TIMEOUT_S}s"
                 fault = faults.TIMEOUT
@@ -153,6 +154,19 @@ class Toolgate(Worker):
         return self._complete(env, exit_code=exit_code, fault=fault,
                               duration=time.monotonic() - started, output=output)
 
+    def _execute_command(self, command: str, worktree: Path) -> subprocess.CompletedProcess[str]:
+        if not os.environ.get("RELAY_EVIDENCE_IMAGE"):
+            return subprocess.run(command, shell=True, cwd=worktree, env=self.env,
+                                  capture_output=True, text=True, timeout=RUN_TIMEOUT_S)
+        from relay.workers.evidence_runner import invocation, run_process
+        with tempfile.TemporaryDirectory(prefix="relay-container-") as directory:
+            collector = Path(directory) / "collector"
+            results = Path(directory) / "results"
+            collector.mkdir()
+            results.mkdir()
+            argv = invocation(["sh", "-c", command], worktree, collector, results)
+            return run_process(argv, worktree, self.env)
+
     def _complete(
         self,
         env: Envelope,
@@ -160,6 +174,7 @@ class Toolgate(Worker):
         duration: float,
         output: str,
         fault: str | None = None,
+        receipt: dict[str, Any] | None = None,
     ) -> str:
         run_id = str(env.payload["run_id"])
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
@@ -168,6 +183,7 @@ class Toolgate(Worker):
         result = self.publisher.send(
             "toolgate", "coordinator", "run.completed",
             {
+                **({"receipt": receipt} if receipt is not None else {}),
                 "run_id": run_id,
                 "kind": str(env.payload["kind"]),
                 "commit_sha": str(env.payload["commit_sha"]),

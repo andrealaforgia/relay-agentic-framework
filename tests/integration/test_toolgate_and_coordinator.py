@@ -12,7 +12,6 @@ from relay.bus.keys import ledger_key
 from relay.contract.envelope import Envelope
 from relay.coordinator.main import Coordinator
 from relay.coordinator.model import BehaviourState
-from relay.gitops import branch as gitops
 from relay.workers.toolgate import Toolgate
 
 PYTEST_CMD = f"{sys.executable} -m pytest -q {{test_paths}}"
@@ -245,3 +244,87 @@ def test_doctor_flags_a_toolchain_the_toolgate_cannot_reach(
     monkeypatch.chdir(project)
     assert _check_toolchain() == 1
     assert "is not on the toolgate's PATH" in capsys.readouterr().out
+
+
+def test_evidence_receipt_contains_executed_checks_and_detects_a_faulty_implementation(
+    client, publisher, project, monkeypatch
+):
+    monkeypatch.delenv('RELAY_RECEIPT_KEY', raising=False)
+    monkeypatch.delenv('RELAY_RECEIPT_PUBLIC_KEY', raising=False)
+    monkeypatch.setenv('RELAY_EVIDENCE_ALLOW_NATIVE', '1')
+    (project / 'test_rooms.py').write_text(
+        "import os\nfrom pathlib import Path\n"
+        "def test_free_rooms():\n"
+        "    assert 'RELAY_RECEIPT_KEY' not in os.environ\n"
+        "    assert Path('rooms.txt').read_text() == 'free'\n")
+    (project / 'rooms.txt').write_text('booked')
+    _git(project, 'add', '-A'); _git(project, 'commit', '-qm', 'faulty booking')
+    broken = _git(project, 'rev-parse', 'HEAD')
+    (project / 'rooms.txt').write_text('free')
+    _git(project, 'add', '-A'); _git(project, 'commit', '-qm', 'correct booking')
+    fixed = _git(project, 'rev-parse', 'HEAD')
+    gate = Toolgate('testswarm', project, commands={'evidence':f'{sys.executable} -m pytest'}, client=client)
+    for suffix, sha in [('R1', broken), ('R2', fixed)]:
+        publisher.send('coordinator', 'toolgate', 'run.requested',
+            {'run_id':'run-01J5AB3CDEF4GH5JK6MN7PQ8'+suffix, 'kind':'evidence', 'commit_sha':sha,
+             'evidence':{'version':1, 'bindings':{'I1.S1.B1':['test_rooms.py::test_free_rooms']}}},
+            story_id='I1.S1', iteration_id='I1')
+    gate.run_forever(block_ms=1, max_cycles=1)
+    bad, good = _completions(client)
+    assert bad.payload['exit_code'] != 0
+    assert good.payload['exit_code'] == 0
+    receipt = good.payload['receipt']
+    assert 'signature' not in good.payload
+    assert receipt['coverage']['I1.S1.B1'] == ['test_rooms.py::test_free_rooms']
+    assert receipt['commit_sha'] == fixed
+    assert receipt['stdout']
+
+
+def test_evidence_refuses_changed_verification_code(client,publisher,project,monkeypatch):
+    monkeypatch.setenv('RELAY_EVIDENCE_ALLOW_NATIVE','1')
+    (project/'test_guard.py').write_text('def test_guard():\n    assert False\n')
+    _git(project,'add','-A'); _git(project,'commit','-qm','independent check')
+    baseline=_git(project,'rev-parse','HEAD')
+    (project/'test_guard.py').write_text('def test_guard():\n    assert True\n')
+    _git(project,'add','-A'); _git(project,'commit','-qm','weakened check')
+    candidate=_git(project,'rev-parse','HEAD')
+    gate=Toolgate('testswarm',project,commands={'evidence':f'{sys.executable} -m pytest'},client=client)
+    publisher.send('coordinator','toolgate','run.requested',
+        {'run_id':'run-01J5AB3CDEF4GH5JK6MN7PQ8R1','kind':'evidence','commit_sha':candidate,
+         'evidence':{'version':1,'bindings':{'P1':['test_guard.py::test_guard']},
+                     'test_baselines':{'test_guard.py':baseline}}},story_id='I1.S1',iteration_id='I1')
+    gate.run_forever(block_ms=1,max_cycles=1)
+    completion=_completions(client)[0]
+    assert completion.payload['exit_code'] != 0
+    assert 'changed' in completion.payload['summary']
+
+
+def test_receipt_replay_runs_without_mutating_the_ledger(client,publisher,project,monkeypatch):
+    from relay.workers.evidence_replay import replay
+    monkeypatch.setenv('RELAY_EVIDENCE_ALLOW_NATIVE','1')
+    (project/'test_guard.py').write_text('def test_guard():\n    assert 2+2 == 4\n')
+    _git(project,'add','-A');_git(project,'commit','-qm','check')
+    sha=_git(project,'rev-parse','HEAD')
+    publisher.send('coordinator','toolgate','run.requested',
+        {'run_id':'run-01J5AB3CDEF4GH5JK6MN7PQ8R1','kind':'evidence','commit_sha':sha,
+         'command':f'{sys.executable} -m pytest',
+         'evidence':{'version':1,'bindings':{'P1':['test_guard.py::test_guard']}}},
+        story_id='I1.S1',iteration_id='I1')
+    request=Envelope.from_fields(client.xrange(ledger_key('testswarm'))[-1][1])
+    depth=client.xlen(ledger_key('testswarm'))
+    result=replay(project,request)
+    assert result['exit_code']==0
+    assert result['receipt']['commit_sha']==sha
+    assert client.xlen(ledger_key('testswarm'))==depth
+
+
+def test_obsolete_signing_configuration_does_not_block_legacy_commands(client,publisher,project,monkeypatch):
+    monkeypatch.setenv('RELAY_RECEIPT_KEY', '/no-longer-used.pem')
+    monkeypatch.delenv('RELAY_EVIDENCE_ALLOW_NATIVE',raising=False)
+    monkeypatch.delenv('RELAY_EVIDENCE_IMAGE',raising=False)
+    gate=Toolgate('testswarm',project,commands={'acceptance_test':'echo should-not-run'},client=client)
+    sha=_git(project,'rev-parse','HEAD')
+    _run_request(publisher,'run-01J5AB3CDEF4GH5JK6MN7PQ8R1',sha)
+    gate.run_forever(block_ms=1,max_cycles=1)
+    result=_completions(client)[0]
+    assert result.payload['exit_code'] == 0

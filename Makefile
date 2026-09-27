@@ -10,7 +10,7 @@ VENV := .venv
 PY := $(VENV)/bin/python
 
 .DEFAULT_GOAL := help
-.PHONY: help install redis deps tool uninstall test typecheck check contract doctor clean
+.PHONY: help install redis deps tool uninstall test typecheck check contract doctor clean evaluate
 
 help:  ## Show the targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -50,6 +50,9 @@ test:  ## Run the suite (no model calls, no network)
 
 typecheck:  ## mypy, strict
 	$(PY) -m mypy src
+
+evaluate:  ## Exercise expectation guards and real faulty-code delivery; write JUnit evidence
+	$(PY) -m pytest tests/unit/test_evidence_identity.py tests/unit/test_expectation_workflow.py tests/unit/test_execution_receipts.py tests/unit/test_evidence_reporting.py tests/integration/test_expectation_delivery.py --junitxml=.relay/evaluation.xml
 
 check: test typecheck  ## What CI runs
 

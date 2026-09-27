@@ -18,7 +18,7 @@ from relay.workers.base import Worker
 from relay.workers.chain import ChainWorker
 from relay.workers.toolgate import Toolgate
 
-CHAIN_ROLES = ("interpreter", "planner", "analyst", "specifier", "builder", "reviewer", "qa", "security")
+CHAIN_ROLES = ("interpreter", "planner", "analyst", "specifier", "builder", "reviewer", "codex_reviewer", "qa", "security")
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -110,14 +110,15 @@ def _runner_for(
 
     role_cfg = _role_config(config, role)
     role_cfg.update(override or {})
-    runner_name = role_cfg.get("runner", "claude")
+    runner_name = role_cfg.get("runner", "codex" if role == "codex_reviewer" else "claude")
     raw_model = role_cfg.get("model")
     model = str(raw_model) if raw_model else None
     if runner_name == "codex":
         from relay.runners.codex import CodexRunner
 
         sandbox = "workspace-write" if role in WRITING_ROLES else "read-only"
-        return CodexRunner(sandbox=str(role_cfg.get("sandbox") or sandbox), model=model)
+        return CodexRunner(sandbox=str(role_cfg.get("sandbox") or sandbox), model=model,
+                           effort=str(role_cfg["effort"]) if role_cfg.get("effort") else None)
     if runner_name != "claude":
         raise SystemExit(f"unknown runner '{runner_name}' (claude | codex)")
     settings = role_cfg.get("settings")  # explicit override wins

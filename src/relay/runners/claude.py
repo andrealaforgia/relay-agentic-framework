@@ -148,7 +148,7 @@ class ClaudeRunner:
         cmd = self.build_command(prompt, session_ref)
 
         proc = subprocess.Popen(
-            cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         timer = threading.Timer(timeout_s, proc.kill)
         timer.start()

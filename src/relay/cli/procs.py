@@ -105,12 +105,14 @@ def start_worker(swarm: str, role: str, project: Path) -> int:
     # runner it starts, must be able to find it however relay was launched
     from relay.cli.entrypoints import env_with_entrypoints
 
+    environment = env_with_entrypoints()
+    environment["RELAY_ACTOR_ROLE"] = role
     proc = subprocess.Popen(
         [sys.executable, "-m", "relay.workers.run",
          "--swarm", swarm, "--role", role, "--project", str(project),
          "--state-root", str(state_root())],
         stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-        start_new_session=True, env=env_with_entrypoints(),
+        start_new_session=True, env=environment,
     )
     pf.write_text(str(proc.pid))
     return proc.pid

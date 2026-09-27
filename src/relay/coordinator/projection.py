@@ -44,6 +44,8 @@ _DISPATCH_TYPES = frozenset({
 
 
 def apply(state: SwarmState, env: Envelope) -> SwarmState:
+    if env.seq is not None and env.seq <= state.last_seq:
+        return state
     if env.seq is not None:
         state.last_seq = env.seq
     state.last_event_id = env.event_id
@@ -51,6 +53,9 @@ def apply(state: SwarmState, env: Envelope) -> SwarmState:
     handler = _HANDLERS.get(env.type)
     if handler is not None:
         handler(state, env)
+
+    from relay.coordinator import expectations
+    expectations.apply(state, env)
 
     # deadline bookkeeping, in one place instead of fifteen: a state change
     # resets the clock; a re-dispatch into the SAME state restarts the clock
@@ -91,7 +96,10 @@ def _kind_of(behaviour_id: str) -> str:
 def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
     """Latest roadmap wins. Behaviours already DONE survive a re-plan; every
     other behaviour is rebuilt from the new roadmap."""
-    done = {bid: b for bid, b in state.behaviours.items() if b.state == BehaviourState.DONE}
+    protocol = int(env.payload["roadmap"].get("protocol_version", 1))
+    versions = {sid: story.evidence.version for sid, story in state.stories.items()}
+    done = {bid: b for bid, b in state.behaviours.items()
+            if b.state == BehaviourState.DONE and protocol == 1}
     state.iterations.clear()
     state.stories.clear()
     state.behaviours.clear()
@@ -105,6 +113,8 @@ def _roadmap_committed(state: SwarmState, env: Envelope) -> None:
         state.iterations[iteration.id] = iteration
         for st in it["stories"]:
             story = Story(id=st["id"], iteration_id=iteration.id, title=st["title"])
+            story.evidence.protocol = protocol
+            story.evidence.version = versions.get(story.id, 0) + 1
             state.stories[story.id] = story
             iteration.story_ids.append(story.id)
             for ac in st["acceptance_criteria"]:
@@ -400,8 +410,37 @@ def _decision_requested(state: SwarmState, env: Envelope) -> None:
 
 
 def _run_requested(state: SwarmState, env: Envelope) -> None:
+    existing = state.runs.get(str(env.payload["run_id"]))
+    if existing is not None and existing.request_id:
+        if existing.request_id != env.event_id:
+            _reject_evidence(state, env, "run id was already assigned to another request")
+        return
+    _register_run_request(state, env)
+    run = state.runs.get(str(env.payload["run_id"]))
+    if run is None:
+        return
+    run.request_id = env.event_id
+    run.commit_sha = str(env.payload["commit_sha"])
+    run.kind = str(env.payload["kind"])
+    run.iteration_id = env.iteration_id
+    run.story_id = env.story_id
+    b = state.behaviours.get(run.behaviour_id or "")
+    if b is not None:
+        run.iteration_id = b.iteration_id
+        run.story_id = b.story_id
+        run.attempt = b.attempt
+        b.current_run_id = run.run_id
+
+
+def _register_run_request(state: SwarmState, env: Envelope) -> None:
     run_id = str(env.payload["run_id"])
     kind = str(env.payload["kind"])
+    if kind == "evidence":
+        story = state.stories.get(str(env.story_id))
+        if story is not None and story.evidence.protocol == 2:
+            state.runs[run_id] = RunInfo(run_id=run_id, purpose=RunPurpose.EVIDENCE,
+                                         story_id=story.id, since=env.ts)
+        return
     if kind == "mutation":
         story = state.stories.get(str(env.story_id)) if env.story_id else None
         if story is not None:
@@ -462,8 +501,27 @@ def _run_requested(state: SwarmState, env: Envelope) -> None:
 def _run_completed(state: SwarmState, env: Envelope) -> None:
     run = state.runs.get(str(env.payload["run_id"]))
     if run is None:
+        _reject_evidence(state, env, "run was never requested")
+        return
+    if not _result_matches_request(run, env):
+        _reject_evidence(state, env, "run result does not match its request")
+        return
+    if run.exit_code is not None:
+        if (run.exit_code, run.output_digest, run.fault) != (
+            int(env.payload["exit_code"]), str(env.payload["output_digest"]),
+            str(env.payload.get("fault") or ""),
+        ):
+            run.contested = True
+            b = state.behaviours.get(run.behaviour_id or "")
+            if b is not None and b.current_run_id == run.run_id:
+                b.state = BehaviourState.BLOCKED
+        return
+    b = state.behaviours.get(run.behaviour_id or "")
+    if b is not None and (run.attempt != b.attempt or b.current_run_id != run.run_id):
+        _reject_evidence(state, env, "run belongs to a superseded dispatch or attempt")
         return
     run.exit_code = int(env.payload["exit_code"])
+    run.output_digest = str(env.payload["output_digest"])
     run.summary = str(env.payload.get("summary") or "")
     run.fault = str(env.payload.get("fault") or "")
     if run.fault:
@@ -510,12 +568,46 @@ def _run_completed(state: SwarmState, env: Envelope) -> None:
             b.last_fail_reason = "acceptance test still failing after build"
     elif run.purpose == RunPurpose.SATISFIED_CHECK and b.state == BehaviourState.SATISFIED_PENDING:
         if run.exit_code == 0:
-            # criterion machine-verified as already met; the guard test stands
+            # Completion belongs to the executed tree, which may be newer
+            # than the commit that introduced the guard test.
             b.state = BehaviourState.DONE
-            b.built_commit = b.spec_commit
+            b.built_commit = run.commit_sha
         else:
             b.state = BehaviourState.RED_FAILED
             b.last_fail_reason = "claimed already-satisfied, but the guard test fails"
+
+
+def _reject_evidence(state: SwarmState, env: Envelope, reason: str) -> None:
+    state.evidence_rejections[env.event_id] = reason
+    state.unescalated_errors[env.event_id] = f"rejected {env.type}: {reason}"
+
+
+def _result_matches_request(run: RunInfo, env: Envelope) -> bool:
+    # Older producers omit envelope routing; the required run id still binds
+    # their result. Supplied routing must never contradict the request.
+    return (
+        env.payload["commit_sha"] == run.commit_sha
+        and env.payload["kind"] == run.kind
+        and (env.in_reply_to is None or env.in_reply_to == run.request_id)
+        and _routing_matches_run(run, env)
+    )
+
+
+def _routing_matches_run(run: RunInfo, env: Envelope) -> bool:
+    return all(actual is None or actual == expected for actual, expected in (
+        (env.behaviour_id, run.behaviour_id), (env.story_id, run.story_id),
+        (env.iteration_id, run.iteration_id), (env.commit_sha, run.commit_sha),
+    ))
+
+
+def verified_green_run(state: SwarmState, b: Behaviour, run_id: str) -> bool:
+    run = state.runs.get(run_id)
+    return bool(
+        run is not None and run.run_id == b.current_run_id
+        and run.behaviour_id == b.id and run.purpose == RunPurpose.AT_GREEN
+        and run.commit_sha == b.built_commit and run.attempt == b.attempt
+        and run.exit_code == 0 and not run.fault and not run.contested
+    )
 
 
 def _build_requested(state: SwarmState, env: Envelope) -> None:
@@ -593,6 +685,7 @@ def _decision_made(state: SwarmState, env: Envelope) -> None:
             iteration.escalated = False
             if decision == "retry":
                 iteration.pending_gates.clear()
+                iteration.properties_run_id = None
                 iteration.setup_run_id = None   # a failed bootstrap re-proves itself
                 if not iteration.scaffold_done:  # a stuck scaffold gets a fresh try
                     iteration.scaffold_dispatched = False
@@ -745,7 +838,7 @@ def _gate_requested(state: SwarmState, env: Envelope) -> None:
     subject_id = str(env.payload["subject_id"])
     gate_id = str(env.payload["gate_id"])
     info = GateInfo(gate_id=gate_id, gate=str(env.payload["gate"]),
-                    subject_id=subject_id, since=env.ts,
+                    subject_id=subject_id, since=env.ts, assigned_role=env.to_role,
                     commit_sha=str(env.payload.get("commit_sha") or ""))
     if subject_kind == "behaviour":
         b = state.behaviours.get(subject_id)
@@ -964,6 +1057,9 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
     for b in state.behaviours.values():
         gate = b.pending_gates.get(gate_id)
         if gate is not None:
+            if gate.assigned_role and env.from_role != gate.assigned_role:
+                _reject_evidence(state, env, "gate verdict must come from its assigned reviewer")
+                return
             if verdict == "fail":
                 gate.verdict = _judge_fail(state, gate, env)
             else:
@@ -984,6 +1080,9 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
     for story in state.stories.values():
         gate = story.pending_gates.get(gate_id)
         if gate is not None:
+            if gate.assigned_role and env.from_role != gate.assigned_role:
+                _reject_evidence(state, env, "gate verdict must come from its assigned reviewer")
+                return
             if verdict == "fail":
                 gate.verdict = _judge_fail(state, gate, env)
             else:
@@ -992,6 +1091,9 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
     for iteration in state.iterations.values():
         gate = iteration.pending_gates.get(gate_id)
         if gate is not None:
+            if gate.assigned_role and env.from_role != gate.assigned_role:
+                _reject_evidence(state, env, "gate verdict must come from its assigned reviewer")
+                return
             if verdict == "fail":
                 gate.verdict = _judge_fail(state, gate, env)
             else:
@@ -1001,13 +1103,26 @@ def _gate_verdict(state: SwarmState, env: Envelope) -> None:
 
 def _judgement_requested(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
-    if b and b.state in (BehaviourState.AT_GREEN, BehaviourState.GATES_PASSED):
+    if b and b.state in (BehaviourState.AT_GREEN, BehaviourState.GATES_PASSED,
+                          BehaviourState.ACCEPTANCE_PENDING):
+        run_id = str(env.payload["run_id"])
+        if env.payload["commit_sha"] != b.built_commit or not verified_green_run(state, b, run_id):
+            _reject_evidence(state, env, "judgement requires current successful execution")
+            return
+        b.judgement_run_id = run_id
+        b.judgement_request_id = env.event_id
         b.state = BehaviourState.ACCEPTANCE_PENDING
 
 
 def _acceptance_verdict(state: SwarmState, env: Envelope) -> None:
     b = _behaviour(state, env)
     if b is None or b.state != BehaviourState.ACCEPTANCE_PENDING:
+        return
+    run_id = str(env.payload["run_id"])
+    if (run_id != b.judgement_run_id or not verified_green_run(state, b, run_id)
+            or not _routing_matches_run(state.runs[run_id], env)
+            or (env.in_reply_to is not None and env.in_reply_to != b.judgement_request_id)):
+        _reject_evidence(state, env, "acceptance does not answer the current verified judgement")
         return
     if env.payload["verdict"] == "pass":
         b.state = BehaviourState.DONE

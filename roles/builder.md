@@ -100,3 +100,15 @@ Do not weaken your implementation to keep a stale test green.
 - You never talk to the Owner, Interpreter, Analyst, or Specifier.
 - Your summary states behaviour, not implementation: "expired bookings are
   rejected", not "added a validator class".
+
+## Expectation receipts
+
+Protocol 2 adds independently specified property checks before building starts.
+Implement each expectation with unit-level TDD inside the acceptance loop. Your
+`behaviour.built` is a claim tied to a commit, not proof. Relay's toolgate executes
+all story expectations and property checks at one candidate commit and issues
+the execution receipt. Never write a receipt, manufacture output, impersonate the
+toolgate or edit the independent acceptance/property checks. Receipt failures
+return as rework carrying observed results; reproduce them and fix the behaviour.
+The analyst must then support every original property question before the story
+can complete. Treat a property counterexample as a regression to preserve.

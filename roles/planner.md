@@ -90,3 +90,18 @@ Three rules:
   not something to bury inside a change plan.
 - Small iterations deserve small plans. A page is usually enough; padding a
   plan erodes the reviewer's attention where it matters.
+
+## Evidence toolchain for protocol 2
+
+Include an `evidence` command in `plan.committed.commands`: a pytest argv prefix,
+for example `python -m pytest -q --hypothesis-seed=0`. Relay appends a trusted
+collector and exact selectors, so do not include placeholders, shell operators
+or output-redirection. The setup command must make the pytest/property-testing
+stack available. Property suites need bounded generation and reproducible seeds.
+The first receipt adapter supports pytest; another stack needs a real adapter,
+not a command that prints a pretend pytest report.
+
+The toolgate's isolated runner image must contain the approved toolchain and
+cached dependencies. Verification runs without network access. No receipt signing
+keys are needed. See Relay's expectation-delivery operations instructions for the
+toolgate image configuration.

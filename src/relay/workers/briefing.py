@@ -39,6 +39,7 @@ ROLE_KNOWLEDGE: dict[str, tuple[str, ...]] = {
     "specifier": ("invariants.md", "conventions.md", "domain.md"),
     "builder": ("conventions.md", "invariants.md", "brief.md"),
     "reviewer": ("invariants.md", "conventions.md"),
+    "codex_reviewer": ("invariants.md", "conventions.md"),
     "qa": ("conventions.md",),
     "security": ("risk-map.md", "brief.md"),
 }
@@ -159,7 +160,7 @@ def plan_briefing(workspace: Path, payload: dict[str, object]) -> str:
 def build(workspace: Path, role: str, type_: str, payload: dict[str, object]) -> str:
     """The whole briefing for one trigger, in prompt order."""
     parts = [knowledge_briefing(workspace, role), project_briefing(workspace)]
-    if role in ("specifier", "builder", "reviewer"):
+    if role in ("specifier", "builder", "reviewer", "codex_reviewer"):
         parts.append(plan_briefing(workspace, payload))
     if type_ == "gate.requested":
         parts.append(diff_briefing(workspace, str(payload.get("base_sha") or ""),

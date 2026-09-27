@@ -1,11 +1,11 @@
 # Relay Protocol
 
 **GENERATED from `contract/relay-contract.yaml` — do not edit.**
-Contract version 1, hash `1afea7edca0e141601d4d131ca73827187ceaee880443963b7e144950cad9137`.
+Contract version 2, hash `59d7278b65387f7e42a071f10f613bbc7a41f707e490c2563123ffe7e1ffed38`.
 
 ## Roles
 
-- Assistants: interpreter, planner, analyst, specifier, builder, reviewer, qa, security
+- Assistants: interpreter, planner, analyst, specifier, builder, reviewer, codex_reviewer, qa, security
 - Humans: owner
 - Infra: coordinator, toolgate, system
 
@@ -13,32 +13,38 @@ Contract version 1, hash `1afea7edca0e141601d4d131ca73827187ceaee880443963b7e144
 
 | Plane | Edge | Message types |
 |---|---|---|
+| chat | `codex_reviewer>interpreter` | `update.shared` |
 | chat | `coordinator>owner` | `progress.reported` |
 | chat | `interpreter>owner` | `checkpoint.reached`, `pr.announced`, `questions.asked`, `roadmap.proposed`, `update.shared` |
 | chat | `owner>interpreter` | `answers.given`, `decision.made`, `feedback.given`, `instruction.given`, `problem.stated` |
+| chat | `reviewer>interpreter` | `update.shared` |
 | plan | `coordinator>interpreter` | `decision.requested`, `iteration.finished`, `pause.ordered`, `pr.opened`, `resume.ordered`, `roadmap.rejected`, `stall.detected`, `story.completed` |
 | plan | `coordinator>planner` | `pause.ordered`, `plan.requested`, `resume.ordered` |
 | plan | `interpreter>coordinator` | `decision.made`, `iteration.aborted`, `iteration.started`, `pr.approved`, `roadmap.committed` |
 | plan | `interpreter>planner` | `feedback.relayed`, `plan.approved` |
 | plan | `planner>coordinator` | `error.raised`, `plan.committed` |
 | plan | `planner>interpreter` | `plan.drafted` |
+| work | `analyst>coordinator` | `error.raised`, `story.prepared`, `story.validation.judged` |
 | work | `analyst>interpreter` | `questions.raised`, `recon.completed`, `stories.written` |
 | work | `builder>coordinator` | `behaviour.built`, `error.raised`, `scaffold.completed` |
-| work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered` |
+| work | `coordinator>analyst` | `pause.ordered`, `recon.requested`, `resume.ordered`, `story.preparation.requested`, `story.validation.requested` |
 | work | `coordinator>builder` | `build.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `scaffold.requested` |
-| work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `spec.requested` |
+| work | `coordinator>specifier` | `judgement.requested`, `pause.ordered`, `resume.ordered`, `rework.requested`, `spec.requested`, `story.verification.requested` |
 | work | `interpreter>analyst` | `analysis.requested`, `answers.relayed` |
-| work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.satisfied`, `spec.written` |
-| gate | `coordinator>qa` | `gate.requested`, `pause.ordered`, `resume.ordered` |
+| work | `specifier>coordinator` | `acceptance.judged`, `error.raised`, `spec.satisfied`, `spec.written`, `story.verification.written` |
+| gate | `codex_reviewer>coordinator` | `gate.judged` |
+| gate | `coordinator>codex_reviewer` | `gate.requested`, `pause.ordered`, `resume.ordered` |
+| gate | `coordinator>qa` | `gate.requested`, `pause.ordered`, `resume.ordered`, `story.verification.review.requested` |
 | gate | `coordinator>reviewer` | `gate.requested`, `pause.ordered`, `resume.ordered` |
 | gate | `coordinator>security` | `gate.requested`, `pause.ordered`, `resume.ordered` |
-| gate | `qa>coordinator` | `gate.judged` |
+| gate | `qa>coordinator` | `gate.judged`, `story.verification.reviewed` |
 | gate | `reviewer>coordinator` | `gate.judged` |
 | gate | `security>coordinator` | `gate.judged` |
 | run | `coordinator>toolgate` | `run.requested` |
 | run | `toolgate>coordinator` | `run.completed` |
 | system | `analyst>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `builder>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
+| system | `codex_reviewer>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `coordinator>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `interpreter>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
 | system | `owner>system` | `contract.upgraded`, `gap.detected`, `message.quarantined`, `session.started`, `usage.reported`, `worker.failed`, `worker.started`, `worker.stopped` |
@@ -107,6 +113,14 @@ One JSON Schema per type lives in `contract/schema/`.
 | `stall.detected` | plan | `subject_id`, `waiting_on`, `since_ts` |
 | `stories.written` | work | `stories` |
 | `story.completed` | plan | `story_id`, `summary` |
+| `story.preparation.requested` | work | `story_id`, `version`, `expectations`, `sources` |
+| `story.prepared` | work | `story_id`, `version`, `expectations`, `properties` |
+| `story.validation.judged` | work | `story_id`, `version`, `commit_sha`, `run_id`, `answers` |
+| `story.validation.requested` | work | `story_id`, `version`, `commit_sha`, `run_id`, `expectations`, `properties`, `receipt` |
+| `story.verification.requested` | work | `story_id`, `version`, `expectations`, `properties`, `reason` |
+| `story.verification.review.requested` | gate | `story_id`, `version`, `expectations`, `properties`, `reason`, `commit_sha`, `checks` |
+| `story.verification.reviewed` | gate | `story_id`, `version`, `verdict`, `reason` |
+| `story.verification.written` | work | `story_id`, `version`, `commit_sha`, `checks` |
 | `update.shared` | chat | `text` |
 | `usage.reported` | system | `role`, `model`, `trigger_type`, `fresh_session` |
 | `worker.failed` | system | `role`, `kind`, `detail` |

@@ -53,6 +53,7 @@
     "GateName": {
       "enum": [
         "code_review",
+        "codex_review",
         "test_design",
         "mutation",
         "security",
@@ -113,6 +114,13 @@
           },
           "minItems": 1,
           "type": "array"
+        },
+        "protocol_version": {
+          "enum": [
+            1,
+            2
+          ],
+          "type": "integer"
         }
       },
       "required": [
@@ -129,6 +137,7 @@
         "specifier",
         "builder",
         "reviewer",
+        "codex_reviewer",
         "qa",
         "security",
         "coordinator",

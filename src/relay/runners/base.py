@@ -1,7 +1,8 @@
-"""The runner protocol: 'invoke this brain with this prompt in this directory,
-resumably'. The framework never parses model stdout for work product — the
-model's only output channel is relay-send, and verification reads the ledger.
-TurnResult.text exists for logs and viewers only.
+"""Invoke a model with a prompt in a workspace.
+
+Work counts only after contract validation and ledger publication. Most roles
+publish via relay-send; read-only review runners return structured JSON for the
+host to validate and publish. TurnResult.text is otherwise for logs and viewers.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Protocol
 @dataclass(frozen=True)
 class RunnerCaps:
     supports_resume: bool
+    structured_reviews: bool = False
 
 
 @dataclass(frozen=True)

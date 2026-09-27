@@ -71,3 +71,21 @@ def test_builder_guidance_shows_an_iteration_level_completion() -> None:
 def test_builder_guidance_forbids_probing_the_ledger() -> None:
     text = (ROLES / "builder.md").read_text().lower()
     assert "never publish a placeholder" in text
+
+
+def test_new_roadmap_publication_defaults_to_expectation_protocol(monkeypatch,client):
+    from test_coordinator import ROADMAP
+    monkeypatch.setattr(send,'get_client',lambda:client)
+    monkeypatch.setattr(sys,'argv',['relay-send','--swarm','testswarm','--from','interpreter',
+        '--to','coordinator','--type','roadmap.committed','--payload',json.dumps({'roadmap':ROADMAP,'intake':{'mode':'greenfield'}})])
+    assert send.main()==0
+    payload=json.loads(client.xrange(ledger_key('testswarm'))[-1][1]['payload'])
+    assert payload['roadmap']['protocol_version']==2
+
+
+def test_model_cli_cannot_publish_toolgate_receipts(monkeypatch,client):
+    monkeypatch.setattr(send,'get_client',lambda:client)
+    monkeypatch.setattr(sys,'argv',['relay-send','--swarm','testswarm','--from','toolgate',
+        '--to','coordinator','--type','run.completed','--payload','{}'])
+    assert send.main()==1
+    assert not client.xlen(ledger_key('testswarm'))

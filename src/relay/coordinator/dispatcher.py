@@ -98,6 +98,7 @@ class Dispatcher:
     def react(self, state: SwarmState) -> int:
         published = self._maybe_request_recon(state)
         published += self._escalate_orphan_errors(state)
+        published += self._escalate_conflicting_runs(state)
         published += self._escalate_infra_faults(state)
         published += self.reask_after_mismatch(state)
         published += self._escalate_contested(state)
@@ -151,6 +152,8 @@ class Dispatcher:
         published += self._supervise_story_and_iteration_gates(state, now_s)
         published += self._supervise_planning(state, now_s)
         published += self._supervise_scaffold(state, now_s)
+        from relay.coordinator.expectations import supervise
+        published += supervise(self, state, now_s)
         return published
 
     def _supervise_scaffold(self, state: SwarmState, now_s: float) -> int:
@@ -753,6 +756,32 @@ class Dispatcher:
             published += 1
         return published
 
+    def _escalate_conflicting_runs(self, state: SwarmState) -> int:
+        published = 0
+        for run in state.runs.values():
+            if not run.contested:
+                continue
+            reason = f"conflicting execution results for {run.run_id}; fresh verification is required"
+            if any(decision.reason == reason for decision in state.decisions.values()):
+                continue
+            subject = run.behaviour_id or run.story_id or run.iteration_id
+            if subject is None:
+                continue
+            published += self._ask_owner(
+                state, subject, reason, behaviour_id=run.behaviour_id,
+                story_id=run.story_id, iteration_id=run.iteration_id,
+            )
+            behaviour = state.behaviours.get(subject)
+            story = state.stories.get(subject)
+            iteration = state.iterations.get(subject)
+            if behaviour is not None:
+                behaviour.state = BehaviourState.BLOCKED
+            if story is not None:
+                story.escalated = True
+            if iteration is not None:
+                iteration.escalated = True
+        return published
+
     # ── roadmap validation (lesson 4 lives in code) ─────────────────────────
 
     def _roadmap_errors(self, state: SwarmState) -> list[str]:
@@ -781,13 +810,22 @@ class Dispatcher:
     # ── behaviour advancement ────────────────────────────────────────────────
 
     def _advance_behaviours(self, state: SwarmState, iteration_id: str) -> int:
-        behaviours = state.iteration_behaviours(iteration_id)
+        from relay.coordinator import expectations
+        published = 0
+        for story in state.stories.values():
+            if story.iteration_id == iteration_id:
+                published += expectations.advance_preparation(self, state, story)
+        behaviours = [b for b in state.iteration_behaviours(iteration_id)
+                      if (b.story_id is None or state.stories[b.story_id].evidence.protocol == 1
+                          or state.stories[b.story_id].evidence.ready)]
+        if any(st.evidence.protocol == 2 and not st.done_announced
+               for st in state.stories.values() if st.iteration_id == iteration_id):
+            behaviours = [b for b in behaviours if b.story_id is not None]
         in_flight = [
             b for b in behaviours
             if b.state not in TERMINAL_STATES and b.state != BehaviourState.PLANNED
         ]
 
-        published = 0
         # A contradicting acceptance test does not care what state the
         # behaviour reached: the builder finds it while building something
         # else, and reports it against whatever it was working on. Skipping
@@ -1045,6 +1083,8 @@ class Dispatcher:
         run = state.runs.get(iteration.setup_run_id)
         if run is None or run.exit_code is None:
             return 0                                  # waiting on the toolgate
+        if run.contested:
+            return 0
         if run.exit_code == 0 and not run.fault:
             return None
         # Greenfield chicken-and-egg: the plan proposed a stack, but a
@@ -1181,18 +1221,17 @@ class Dispatcher:
         return 1
 
     def _request_judgement(self, state: SwarmState, b: Behaviour) -> int:
-        green = [
-            r for r in state.runs.values()
-            if r.behaviour_id == b.id and r.purpose == RunPurpose.AT_GREEN and r.exit_code == 0
-        ]
-        if not green:
+        from relay.coordinator.projection import verified_green_run
+
+        run_id = b.current_run_id
+        if run_id is None or not verified_green_run(state, b, run_id):
             return 0
         self._publisher.send(
             COORDINATOR, "specifier", "judgement.requested",
             {
                 "behaviour_id": b.id,
                 "commit_sha": _require(b.built_commit, "built_commit"),
-                "run_id": green[-1].run_id,
+                "run_id": run_id,
             },
             behaviour_id=b.id, iteration_id=b.iteration_id, story_id=b.story_id,
             commit_sha=b.built_commit,
@@ -1231,6 +1270,8 @@ class Dispatcher:
         run = state.runs.get(run_id)
         if run is None or run.exit_code is None:
             return "pending", 0
+        if run.contested:
+            return "pending", 0
         if run.fault:
             # a property suite that never started is not a broken invariant:
             # turning it into rework would send a builder hunting a
@@ -1257,6 +1298,15 @@ class Dispatcher:
     def _advance_stories(self, state: SwarmState) -> int:
         published = 0
         for story in state.stories.values():
+            if story.evidence.protocol == 2 and not story.escalated and state.story_behaviours_done(story.id):
+                from relay.coordinator.expectations import advance_validation
+                candidates = (state.iteration_behaviours(story.iteration_id)
+                              if state.behaviours_done(story.iteration_id)
+                              else state.story_behaviours(story.id))
+                verified, count = advance_validation(self, state, story, self._last_built_commit(candidates))
+                published += count
+                if not verified:
+                    continue
             if story.done_announced or story.escalated:
                 continue
             if not state.story_behaviours_done(story.id):
@@ -1311,6 +1361,8 @@ class Dispatcher:
         run = state.runs.get(story.mutation_run_id)
         if run is None or run.exit_code is None:
             return 0  # waiting on the toolgate
+        if run.contested:
+            return 0
         if run.fault:
             # cargo-mutants missing is not a surviving mutant, and qa must never
             # be handed a run that did not happen to judge
@@ -1372,6 +1424,11 @@ class Dispatcher:
                 iteration.pr_opened = True
                 published += 1
             if iteration.ready_announced or iteration.escalated:
+                continue
+            if any(st.evidence.protocol == 2 and
+                   (not st.done_announced or st.evidence.accepted_commit != self._last_built_commit(
+                       state.iteration_behaviours(iteration.id)))
+                   for st in state.stories.values() if st.iteration_id == iteration.id):
                 continue
             if not state.behaviours_done(iteration.id):
                 continue

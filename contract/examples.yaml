@@ -343,3 +343,92 @@ scaffold.completed:
   iteration_id: I1
   commit_sha: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
   summary: "Vite TS PWA skeleton: package.json + lockfile, playwright config, src/ and tests/ laid out per the plan."
+
+story.preparation.requested:
+  story_id: I1.S1
+  version: 1
+  expectations:
+  - id: I1.S1.B1
+    text: Only free rooms are listed.
+  sources:
+  - event_id: 01J5AB3CDEF4GH5JK6MN7PQ8RS
+    text: Show free rooms
+story.prepared:
+  story_id: I1.S1
+  version: 1
+  expectations:
+  - &id001
+    id: I1.S1.B1
+    text: Only free rooms are listed.
+    source_refs:
+    - event_id: 01J5AB3CDEF4GH5JK6MN7PQ8RS
+      quote: free rooms
+  properties:
+  - &id002
+    id: I1.S1.P1
+    question: Are booked rooms always excluded?
+    scope: All booking states
+    expectation_ids:
+    - I1.S1.B1
+    verification: Generated booking states through the CLI
+story.verification.requested:
+  story_id: I1.S1
+  version: 1
+  expectations:
+  - *id001
+  properties:
+  - *id002
+  reason: Prepare the property checks before building
+story.verification.written:
+  story_id: I1.S1
+  version: 1
+  commit_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  checks:
+    I1.S1.P1:
+    - tests/properties/test_rooms.py::test_booked_rooms
+story.validation.requested:
+  story_id: I1.S1
+  version: 1
+  commit_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  run_id: run-01J5AB3CDEF4GH5JK6MN7PQ8RS
+  expectations:
+  - *id001
+  properties:
+  - *id002
+  receipt: {}
+story.validation.judged:
+  story_id: I1.S1
+  version: 1
+  commit_sha: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  run_id: run-01J5AB3CDEF4GH5JK6MN7PQ8RS
+  answers:
+  - property_id: I1.S1.P1
+    verdict: supported
+    run_id: run-01J5AB3CDEF4GH5JK6MN7PQ8RS
+    explanation: The executed generated cases exclude booked rooms.
+story.verification.review.requested:
+  story_id: I1.S1
+  version: 1
+  expectations:
+  - id: I1.S1.B1
+    text: Only free rooms are listed.
+    source_refs:
+    - event_id: 01J5AB3CDEF4GH5JK6MN7PQ8RS
+      quote: free rooms
+  properties:
+  - id: I1.S1.P1
+    question: Are booked rooms always excluded?
+    scope: All booking states
+    expectation_ids:
+    - I1.S1.B1
+    verification: Generated booking states through the CLI
+  reason: Prepare the property checks before building
+  commit_sha: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  checks:
+    I1.S1.P1:
+    - tests/properties/test_rooms.py::test_booked_rooms
+story.verification.reviewed:
+  story_id: I1.S1
+  version: 1
+  verdict: pass
+  reason: Independent checks exercise the public surface

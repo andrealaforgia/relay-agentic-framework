@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from relay.coordinator.evidence import StoryEvidence
+
 
 class BehaviourState(StrEnum):
     PLANNED = "planned"
@@ -42,6 +44,7 @@ class RunPurpose(StrEnum):
     SATISFIED_CHECK = "satisfied_check"
     PROPERTIES = "properties"
     SETUP = "setup"
+    EVIDENCE = "evidence"
 
 
 @dataclass
@@ -56,6 +59,13 @@ class RunInfo:
     # set when the command did not run at all: the exit code is then evidence
     # about the machine, never about the code, and nothing may be read into it
     fault: str = ""
+    request_id: str = ""
+    commit_sha: str = ""
+    kind: str = ""
+    iteration_id: str | None = None
+    attempt: int = 0
+    output_digest: str = ""
+    contested: bool = False
 
 
 @dataclass
@@ -70,6 +80,7 @@ class GateInfo:
     since: str = ""              # dispatch ts — deadline supervision needs it
     attempt: int = 0             # times this gate was re-dispatched (folded)
     commit_sha: str = ""         # the code this gate was asked to judge
+    assigned_role: str = ""
     contested_reason: str = ""
     # a failing verdict whose only blocking findings are risks the Owner
     # accepted by name is honoured as a pass: these are those titles
@@ -144,6 +155,9 @@ class Behaviour:
     late_completion: dict[str, str] | None = None
     # replies that answered a superseded dispatch or attempt (event ids)
     stale_replies: list[str] = field(default_factory=list)
+    current_run_id: str | None = None
+    judgement_run_id: str | None = None
+    judgement_request_id: str | None = None
 
 
 @dataclass
@@ -151,6 +165,7 @@ class Story:
     id: str
     iteration_id: str
     title: str
+    evidence: StoryEvidence = field(default_factory=StoryEvidence)
     behaviour_ids: list[str] = field(default_factory=list)
     int_behaviour_id: str = ""          # the story's own end-to-end behaviour
     done_announced: bool = False        # story.completed seen on the ledger
@@ -229,6 +244,8 @@ class Iteration:
 class SwarmState:
     """The projection. `last_seq` makes snapshots verifiable."""
 
+    sources: dict[str, str] = field(default_factory=dict)
+    evidence_rejections: dict[str, str] = field(default_factory=dict)
     last_seq: int = 0
     last_event_id: str | None = None
     roadmap_committed: bool = False

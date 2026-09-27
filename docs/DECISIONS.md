@@ -105,7 +105,9 @@ command a builder legitimately needs — the guardrails that matter are the cont
 bus, the deterministic gates, and the audit, not per-tool prompts. Per-role permission profiles
 still exist and can be re-enabled with `skip_permissions = false` in `relay.toml`; the
 interpreter's profile is always loaded regardless, because it carries the relay-inbox hooks.
-The model's only output channel is `relay-send` (validated publish); nothing parses model stdout.
+Most roles publish through `relay-send`. Read-only Codex code reviews return structured JSON;
+the worker validates the gate identity, schema and verdict consistency before publishing through
+the same contract-checked publisher. Free-form stdout never counts as a verdict.
 
 ## D11 — The framework tests itself without any LLM
 

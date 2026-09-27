@@ -433,7 +433,9 @@ def _native_session_exec(
     if fresh and kickoff:
         cmd.append(kickoff)
     os.chdir(project)
-    os.execvpe("claude", cmd, env_with_entrypoints())
+    environment = env_with_entrypoints()
+    environment["RELAY_ACTOR_ROLE"] = role
+    os.execvpe("claude", cmd, environment)
 
 
 @app.command()
@@ -607,6 +609,7 @@ def chat(
     from relay.cli.entrypoints import env_with_entrypoints
 
     session_env = env_with_entrypoints()
+    session_env["RELAY_ACTOR_ROLE"] = "interpreter"
     if not sys.stdin.isatty():
         os.execvpe("claude", cmd, session_env)      # piped/tested: nothing to wake
 
@@ -724,7 +727,7 @@ def acl_gen(
 
     name = _swarm(swarm)
     roles = ["coordinator", "toolgate", "interpreter", "analyst", "specifier",
-             "builder", "reviewer", "qa", "security", "owner"]
+             "builder", "reviewer", "codex_reviewer", "qa", "security", "owner"]
     commands = ("+xadd +xreadgroup +xack +xautoclaim +xpending +xrange +xrevrange "
                 "+xlen +xgroup +hget +hset +get +set +del +incr +scan +ping "
                 "+script +evalsha +eval +info +config|get")
@@ -915,6 +918,13 @@ def status(swarm: str = SwarmOpt) -> None:
 
     state = project_events(env for _sid, env in read_all(client, name))
 
+    from relay.ledger.evidence import story_report
+    for story_id in state.stories:
+        report_data = story_report(state, story_id)
+        if report_data['protocol_version'] == 2:
+            console.print(f"{story_id}: {report_data['status']} "
+                          f"({len(report_data['missing_answers'])} properties awaiting support)", markup=False)
+
     # the FULL board, uncropped — `relay watch` collapses what its terminal
     # cannot show and points here, so here must genuinely list everything
     if state.behaviour_order:
@@ -1047,6 +1057,60 @@ def _check_toolchain() -> int:
         else:
             console.print(f"[green]✓[/green] {kind}: {command}")
     return failures
+
+
+
+
+@app.command("evidence")
+def evidence_view(story: str, swarm: str = SwarmOpt,
+                  out: Path | None = typer.Option(None, "--out")) -> None:
+    """Inspect expectations, original questions, receipts and answers as JSON."""
+    import json
+    from relay.coordinator.projection import project
+    from relay.ledger.reader import read_all
+    from relay.ledger.evidence import story_report, story_metrics
+    events = [env for _, env in read_all(get_client(), _swarm(swarm))]
+    state = project(events)
+    try:
+        report = story_report(state, story)
+        report['metrics'] = story_metrics(events, story)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+    rendered = json.dumps(report, indent=2, ensure_ascii=False)
+    if out:
+        out.write_text(rendered + "\n")
+    else:
+        console.print(rendered, markup=False, highlight=False)
+
+
+@app.command("evidence-rerun")
+def evidence_rerun(story: str, out: Path = typer.Option(..., "--out"),
+                   swarm: str = SwarmOpt) -> None:
+    """Repeat the latest recorded recipe locally; do not change story acceptance."""
+    import json
+    import shlex
+    from relay.cli.context import find_project
+    from relay.ledger.reader import read_all
+    from relay.workers.evidence_replay import replay
+    events = [env for _, env in read_all(get_client(), _swarm(swarm))]
+    completed = [env for env in events if env.type == 'run.completed' and env.story_id == story
+                 and env.payload.get('kind') == 'evidence' and env.payload.get('receipt')]
+    if not completed:
+        raise typer.BadParameter('no executed evidence recipe exists for this story')
+    result = completed[-1]
+    receipt = result.payload['receipt']
+    request = next((env for env in events if env.event_id == receipt['request_id']), None)
+    if request is None:
+        raise typer.BadParameter('the receipt references a missing execution request')
+    request = request.model_copy(update={'payload': {
+        **request.payload, 'command': shlex.join(receipt['command_prefix']),
+        'setup_command': receipt['setup_command'],
+    }})
+    report = replay(find_project(), request)
+    out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
+    console.print(f"Verification exit {report['exit_code']}; receipt saved to {out}", markup=False)
+    if report['exit_code']:
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

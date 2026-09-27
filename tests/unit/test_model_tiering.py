@@ -103,3 +103,15 @@ def test_the_worker_picks_the_brain_that_matches_the_work(client, publisher, tmp
     worker.step(block_ms=1)
 
     assert used == ["role-default", "cheap"]
+
+
+def test_codex_reviewer_can_coexist_with_claude_builder(tmp_path):
+    from relay.runners.codex import CodexRunner
+    config = {'roles': {'reviewer': {'runner': 'codex', 'model': 'review-model', 'effort': 'high'},
+                        'builder': {'runner': 'claude', 'model': 'sonnet'}}}
+    reviewer = _runner_for('reviewer', config, tmp_path)
+    assert isinstance(reviewer, CodexRunner)
+    assert reviewer.sandbox == 'read-only'
+    assert reviewer.model == 'review-model'
+    assert reviewer.effort == 'high'
+    assert isinstance(_runner_for('builder', config, tmp_path), ClaudeRunner)

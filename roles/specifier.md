@@ -84,3 +84,25 @@ Rules:
 - If `docs/relay/knowledge/invariants.md` exists, every invariant touched by
   this behaviour gets a property in `tests/properties/`, and the invariant's
   entry is annotated with the test that guards it.
+
+## Story property checks before implementation
+
+On `story.verification.requested`, write the property's executable checks before
+product implementation. Preserve the original questions. Use generated inputs
+for quantified properties, or exhaust the declared domain when it is finite.
+Make generation reproducible and bounded; configure a fixed Hypothesis seed in
+the approved `evidence` command and preserve failing counterexamples as regression
+cases. Add boundary and negative cases. Exercise real behaviour, not a substitute
+implementation or a mock of the system under test.
+
+Commit property tests in separate files under `tests/properties/`. Publish
+`story.verification.written` with the request's version, commit SHA and a `checks`
+mapping from EVERY property ID to pytest file/node selectors. Do not use options,
+absolute paths or directories as selectors. QA reviews these checks before
+implementation starts. Initial failure for missing behaviour is expected.
+
+For protocol 2, acceptance `test_paths` must also identify real pytest files or
+nodes. Keep property checks and acceptance checks in separate files. The final
+receipt verifies these files against their specification commits. Report a
+legitimate required test change through the existing spec-conflict/rework route;
+a builder may not silently weaken the verification code.

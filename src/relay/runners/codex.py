@@ -1,7 +1,7 @@
 """OpenAI Codex CLI as a runner: `codex exec --json`, resumable threads.
 
-Same contract as every runner: the model's work product is what it publishes
-via relay-send; stdout text is for logs only. Sandbox level maps from the
+Most work is published via relay-send. For code review, the host validates
+the final JSON response and publishes it without exposing Redis to Codex. Sandbox level maps from the
 role's write needs (the analogue of the Claude permission profiles).
 
 Codex event stream (JSONL): thread.started {thread_id}, item.completed
@@ -14,6 +14,9 @@ thread costs context, never correctness.
 from __future__ import annotations
 
 import json
+import os
+import signal
+import tempfile
 import subprocess
 import threading
 from collections.abc import Callable
@@ -59,10 +62,11 @@ def parse_codex_line(line: str) -> tuple[str | None, str | None, str | None]:
 
 @dataclass
 class CodexRunner:
-    sandbox: str = "workspace-write"   # read-only | workspace-write
+    sandbox: str = "workspace-write"  # read-only | workspace-write
     model: str | None = None
+    effort: str | None = None
     binary: str = "codex"
-    capabilities: RunnerCaps = RunnerCaps(supports_resume=True)
+    capabilities: RunnerCaps = RunnerCaps(supports_resume=True, structured_reviews=True)
 
     def run_turn(
         self,
@@ -73,53 +77,91 @@ class CodexRunner:
         timeout_s: int,
         on_event: OnEvent | None = None,
     ) -> TurnResult:
-        cmd = [self.binary, "exec"]
+        cmd = [self.binary, "exec", "--sandbox", self.sandbox]
         if session_ref:
             cmd += ["resume", session_ref]
-        cmd += ["--json", "--sandbox", self.sandbox, "--skip-git-repo-check"]
+        cmd += ["--json", "--skip-git-repo-check"]
         if self.model:
             cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["-c", "model_reasoning_effort=" + json.dumps(self.effort)]
         cmd += [prompt]
 
-        try:
-            proc = subprocess.Popen(
-                cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
-        except FileNotFoundError:
-            return TurnResult(ok=False, error=f"{self.binary} not installed",
-                              session_ref=session_ref, model=self.model)
-        timer = threading.Timer(timeout_s, proc.kill)
-        timer.start()
-        thread_id: str | None = session_ref
-        terminal: str | None = None
-        last_text = ""
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                activity, new_thread, term = parse_codex_line(line)
-                if new_thread:
-                    thread_id = new_thread
-                if activity:
-                    last_text = activity
-                    if on_event:
-                        on_event(activity)
-                if term is not None:
-                    terminal = term
-            proc.wait()
-        finally:
-            timer.cancel()
+        with tempfile.TemporaryFile() as errors:
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=errors,
+                    text=True,
+                    start_new_session=True,
+                )
+            except FileNotFoundError:
+                return TurnResult(
+                    ok=False,
+                    error=f"{self.binary} not installed",
+                    session_ref=session_ref,
+                    model=self.model,
+                )
+            timer = threading.Timer(timeout_s, _kill_process_group, args=(proc,))
+            timer.start()
+            thread_id: str | None = session_ref
+            terminal: str | None = None
+            last_text = ""
+            try:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    activity, new_thread, term = parse_codex_line(line)
+                    try:
+                        event = json.loads(line)
+                        item = event.get("item") or {}
+                        if (
+                            event.get("type") == "item.completed"
+                            and item.get("type") == "agent_message"
+                        ):
+                            last_text = str(item.get("text", ""))
+                    except (ValueError, AttributeError):
+                        pass
+                    if new_thread:
+                        thread_id = new_thread
+                    if activity:
+                        if on_event:
+                            on_event(activity)
+                    if term is not None:
+                        terminal = term
+                proc.wait()
+            finally:
+                timer.cancel()
 
-        if terminal == "ok":
-            return TurnResult(ok=True, text=last_text, session_ref=thread_id,
-                              model=self.model)
-        if terminal is not None:
-            return TurnResult(ok=False, error=terminal, session_ref=thread_id,
-                              model=self.model)
-        stderr = (proc.stderr.read() if proc.stderr else "").strip()[-400:]
-        return TurnResult(
-            ok=proc.returncode == 0,
-            text=last_text,
-            error=None if proc.returncode == 0 else (stderr or f"exit {proc.returncode}"),
-            session_ref=thread_id,
-            model=self.model,
-        )
+            if terminal == "ok" and proc.returncode == 0:
+                return TurnResult(
+                    ok=True, text=last_text, session_ref=thread_id, model=self.model
+                )
+            if terminal is not None:
+                return TurnResult(
+                    ok=False,
+                    text=last_text,
+                    error=terminal if terminal != "ok" else f"exit {proc.returncode}",
+                    session_ref=thread_id,
+                    model=self.model,
+                )
+            errors.seek(0, os.SEEK_END)
+            errors.seek(max(0, errors.tell() - 400))
+            stderr = errors.read().decode(errors="replace").strip()
+            return TurnResult(
+                ok=proc.returncode == 0,
+                text=last_text,
+                error=None
+                if proc.returncode == 0
+                else (stderr or f"exit {proc.returncode}"),
+                session_ref=thread_id,
+                model=self.model,
+            )
+
+
+def _kill_process_group(proc: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass

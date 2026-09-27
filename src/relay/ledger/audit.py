@@ -114,4 +114,18 @@ def audit_ledger(client: redis.Redis, validator: ContractValidator, swarm: str) 
             finding(env, stream_id, "duplicate_event_id", env.event_id)
         seen_event_ids.add(env.event_id)
 
+    from relay.coordinator.projection import project
+    events = list(read_all(client, swarm))
+    valid_events = []
+    for _, event in events:
+        try:
+            validator.validate_message(event.from_role, event.to_role, event.type, event.payload)
+        except ContractError:
+            continue  # Already reported above; malformed data cannot be projected.
+        valid_events.append(event)
+    state = project(valid_events)
+    locations = {env.event_id: (sid, env) for sid, env in events}
+    for event_id, reason in state.evidence_rejections.items():
+        sid, rejected = locations[event_id]
+        finding(rejected, sid, "evidence_integrity", reason)
     return report

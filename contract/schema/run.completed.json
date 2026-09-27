@@ -53,6 +53,7 @@
     "GateName": {
       "enum": [
         "code_review",
+        "codex_review",
         "test_design",
         "mutation",
         "security",
@@ -113,6 +114,13 @@
           },
           "minItems": 1,
           "type": "array"
+        },
+        "protocol_version": {
+          "enum": [
+            1,
+            2
+          ],
+          "type": "integer"
         }
       },
       "required": [
@@ -129,6 +137,7 @@
         "specifier",
         "builder",
         "reviewer",
+        "codex_reviewer",
         "qa",
         "security",
         "coordinator",
@@ -255,15 +264,23 @@
         "mutation",
         "properties",
         "command",
-        "setup"
+        "setup",
+        "evidence"
       ],
       "type": "string"
     },
     "output_digest": {
       "type": "string"
     },
+    "receipt": {
+      "type": "object"
+    },
     "run_id": {
       "$ref": "#/$defs/RunId"
+    },
+    "signature": {
+      "description": "Legacy field retained for ledger compatibility; ignored by Relay.",
+      "type": "string"
     },
     "summary": {
       "maxLength": 2000,

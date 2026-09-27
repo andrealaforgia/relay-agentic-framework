@@ -44,7 +44,7 @@ def test_the_plan_setup_is_proven_before_any_behaviour_dispatches(client, publis
     assert swarm.sent("spec.requested") == []       # held until the proof lands
 
     publisher.send("toolgate", "coordinator", "run.completed",
-                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": run.payload["commit_sha"],
                     "exit_code": 0, "duration_s": 8.0, "output_digest": "d" * 64})
     swarm.pump()
     assert len(swarm.sent("spec.requested")) >= 1   # proven: work flows
@@ -68,7 +68,7 @@ def test_a_failed_setup_blocks_the_iteration_loudly_and_retry_reproves(client, p
                    mode="legacy")
     run = _setup_run(swarm)
     publisher.send("toolgate", "coordinator", "run.completed",
-                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": run.payload["commit_sha"],
                     "exit_code": 1, "duration_s": 2.0, "output_digest": "d" * 64,
                     "summary": "npm ci: EAI_AGAIN registry.npmjs.org"})
     swarm.pump()
@@ -107,7 +107,7 @@ def test_greenfield_setup_failure_sends_the_builder_not_the_owner(client, publis
                     "setup": "npm ci && npx playwright install chromium"})
     run = _setup_run(swarm)
     publisher.send("toolgate", "coordinator", "run.completed",
-                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": run.payload["commit_sha"],
                     "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
                     "summary": NPM_EUSAGE})
     swarm.pump()
@@ -142,7 +142,7 @@ def test_setup_failing_even_after_the_scaffold_reaches_the_owner(client, publish
     swarm = _start(client, publisher, {"acceptance_test": "x", "setup": "npm ci"})
     run = _setup_run(swarm)
     publisher.send("toolgate", "coordinator", "run.completed",
-                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": run.payload["commit_sha"],
                     "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
                     "summary": NPM_EUSAGE})
     swarm.pump()
@@ -168,7 +168,7 @@ def test_a_stalled_scaffold_is_supervised(client, publisher) -> None:
     swarm = _start(client, publisher, {"acceptance_test": "x", "setup": "npm ci"})
     run = _setup_run(swarm)
     publisher.send("toolgate", "coordinator", "run.completed",
-                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": SHA,
+                   {"run_id": run.payload["run_id"], "kind": "setup", "commit_sha": run.payload["commit_sha"],
                     "exit_code": 1, "duration_s": 1.0, "output_digest": "d" * 64,
                     "summary": NPM_EUSAGE})
     swarm.pump()

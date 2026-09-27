@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from relay.bus.client import get_client
@@ -43,6 +44,10 @@ def main() -> int:
         print(f"payload is not valid JSON: {e}", file=sys.stderr)
         return 2
 
+    if args.type_ in ("roadmap.proposed", "roadmap.committed") and isinstance(payload, dict):
+        roadmap = payload.get("roadmap")
+        if isinstance(roadmap, dict):
+            roadmap.setdefault("protocol_version", 2)
     validator = ContractValidator(load_contract())
     if args.check:
         try:
@@ -53,6 +58,10 @@ def main() -> int:
         print(f"valid '{args.type_}': nothing was published")
         return 0
 
+    actor = os.environ.get("RELAY_ACTOR_ROLE")
+    if args.from_role in ("toolgate", "coordinator", "system") or (actor and actor != args.from_role):
+        print("relay-send cannot impersonate another actor or publish infrastructure evidence", file=sys.stderr)
+        return 1
     publisher = Publisher(get_client(), validator, args.swarm)
     try:
         result = publisher.send(

@@ -14,14 +14,14 @@
 # iff it is listed on that edge. A payload is permitted iff it validates
 # against its type's schema. There is no second place for any of this.
 # =============================================================================
-contract_version: 1
+contract_version: 2
 
 roles:
   # planner is a headless worker like the analyst: the Owner never opens a
   # separate session for it. Planning happens in `relay chat` — the planner
   # drafts, the interpreter presents, feedback is relayed, and approval
   # commits the plan. One conversation is the whole owner surface.
-  assistants: [interpreter, planner, analyst, specifier, builder, reviewer, qa, security]
+  assistants: [interpreter, planner, analyst, specifier, builder, reviewer, codex_reviewer, qa, security]
   humans: [owner]
   infra: [coordinator, toolgate, system]
 
@@ -39,9 +39,9 @@ defs:
   QuestionId: { type: string, pattern: "^q-[0-9A-HJKMNP-TV-Z]{26}$" }
   Role:
     type: string
-    enum: [owner, interpreter, planner, analyst, specifier, builder, reviewer, qa, security, coordinator, toolgate]
+    enum: [owner, interpreter, planner, analyst, specifier, builder, reviewer, codex_reviewer, qa, security, coordinator, toolgate]
   BehaviourKind: { type: string, enum: [ac, integration, characterization] }
-  GateName: { type: string, enum: [code_review, test_design, mutation, security, checkpoint, open_pr] }
+  GateName: { type: string, enum: [code_review, codex_review, test_design, mutation, security, checkpoint, open_pr] }
   Severity: { type: string, enum: [blocker, major, minor, nit] }
   Finding:
     type: object
@@ -81,6 +81,7 @@ defs:
     required: [iterations]
     additionalProperties: false
     properties:
+      protocol_version: { type: integer, enum: [1, 2] }
       iterations:
         type: array
         minItems: 1
@@ -104,6 +105,8 @@ edges:
   chat:
     owner>interpreter: [problem.stated, answers.given, decision.made, feedback.given, instruction.given]
     interpreter>owner: [questions.asked, roadmap.proposed, checkpoint.reached, pr.announced, update.shared]
+    reviewer>interpreter: [update.shared]
+    codex_reviewer>interpreter: [update.shared]
     coordinator>owner: [progress.reported]     # machine-generated status; conversation stays interpreter-only
   plan:
     interpreter>coordinator: [roadmap.committed, iteration.started, iteration.aborted, pr.approved,
@@ -116,17 +119,20 @@ edges:
   work:
     interpreter>analyst: [analysis.requested, answers.relayed]
     analyst>interpreter: [questions.raised, recon.completed, stories.written]
-    coordinator>analyst: [recon.requested]
-    coordinator>specifier: [spec.requested, judgement.requested, rework.requested]
-    specifier>coordinator: [spec.written, spec.satisfied, acceptance.judged, error.raised]
+    coordinator>analyst: [recon.requested, story.preparation.requested, story.validation.requested]
+    analyst>coordinator: [story.prepared, story.validation.judged, error.raised]
+    coordinator>specifier: [spec.requested, judgement.requested, rework.requested, story.verification.requested]
+    specifier>coordinator: [spec.written, spec.satisfied, acceptance.judged, error.raised, story.verification.written]
     coordinator>builder: [build.requested, rework.requested, scaffold.requested]
     builder>coordinator: [behaviour.built, scaffold.completed, error.raised]
   gate:
     coordinator>reviewer: [gate.requested]
-    coordinator>qa: [gate.requested]
+    coordinator>codex_reviewer: [gate.requested]
+    coordinator>qa: [gate.requested, story.verification.review.requested]
     coordinator>security: [gate.requested]
     reviewer>coordinator: [gate.judged]
-    qa>coordinator: [gate.judged]
+    codex_reviewer>coordinator: [gate.judged]
+    qa>coordinator: [gate.judged, story.verification.reviewed]
     security>coordinator: [gate.judged]
   run:
     coordinator>toolgate: [run.requested]
@@ -406,7 +412,7 @@ message_types:
           type: object
           additionalProperties: { type: string }
           propertyNames:
-            enum: [acceptance_test, suite, mutation, properties, setup]
+            enum: [acceptance_test, suite, mutation, properties, setup, evidence]
 
   stall.detected:
     payload_schema:
@@ -710,6 +716,8 @@ message_types:
         gate_id: { $ref: "#/$defs/GateId" }
         verdict: { type: string, enum: [pass, fail] }
         findings: { type: array, items: { $ref: "#/$defs/Finding" } }
+        summary: { type: string }
+        limitations: { type: array, items: { type: string } }
         score: { type: number }             # e.g. Farley Index, security score
         run_id: { $ref: "#/$defs/RunId" }
         # After a fail, the burden of proof is on the pass: each prior finding
@@ -737,10 +745,11 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup, evidence] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         test_paths: { type: array, items: { type: string } }
         command: { type: string }
+        evidence: { type: object }
         # bootstrap for the pinned worktree (npm ci, uv sync, ...): runs before
         # `command`; a non-zero exit is a setup_failed FAULT, never a red test
         setup_command: { type: string }
@@ -753,11 +762,13 @@ message_types:
       additionalProperties: false
       properties:
         run_id: { $ref: "#/$defs/RunId" }
-        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup] }
+        kind: { type: string, enum: [acceptance_test, suite, mutation, properties, command, setup, evidence] }
         commit_sha: { $ref: "#/$defs/GitSha" }
         exit_code: { type: integer }
         duration_s: { type: number, minimum: 0 }
         output_digest: { type: string }      # sha256 of captured output
+        receipt: { type: object }
+        signature: { type: string, description: "Legacy field retained for ledger compatibility; ignored by Relay." }
         artifact_path: { type: string }      # where full output is stored
         summary: { type: string, maxLength: 2000 }
         # THE COMMAND DID NOT RUN. Absent means the exit code is evidence about
@@ -884,3 +895,330 @@ message_types:
         cache_creation_input_tokens: { type: integer, minimum: 0 }
         cache_read_input_tokens: { type: integer, minimum: 0 }
         output_tokens: { type: integer, minimum: 0 }
+
+  # Expectation-driven story protocol.
+  story.preparation.requested:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - expectations
+      - sources
+      additionalProperties: false
+      properties:
+        story_id: &id002
+          $ref: '#/$defs/StoryId'
+        version: &id003
+          type: integer
+          minimum: 1
+        expectations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+            - id
+            - text
+            additionalProperties: false
+            properties:
+              id:
+                $ref: '#/$defs/BehaviourId'
+              text: &id001
+                type: string
+                minLength: 1
+        sources:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+            - event_id
+            - text
+            additionalProperties: false
+            properties:
+              event_id:
+                $ref: '#/$defs/EventId'
+              text: *id001
+  story.prepared:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - expectations
+      - properties
+      additionalProperties: false
+      properties:
+        story_id: *id002
+        version: *id003
+        expectations:
+          type: array
+          minItems: 1
+          items: &id004
+            type: object
+            required:
+            - id
+            - text
+            - source_refs
+            additionalProperties: false
+            properties:
+              id:
+                $ref: '#/$defs/BehaviourId'
+              text: *id001
+              source_refs:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required:
+                  - event_id
+                  - quote
+                  additionalProperties: false
+                  properties:
+                    event_id:
+                      $ref: '#/$defs/EventId'
+                    quote: *id001
+        properties:
+          type: array
+          minItems: 1
+          items: &id005
+            type: object
+            required:
+            - id
+            - question
+            - scope
+            - expectation_ids
+            - verification
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                pattern: ^I[0-9]+\.S[0-9]+\.P[0-9]+$
+              question:
+                type: string
+                pattern: \?\s*$
+              scope: *id001
+              expectation_ids:
+                type: array
+                minItems: 1
+                items:
+                  $ref: '#/$defs/BehaviourId'
+              verification: *id001
+  story.verification.requested:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - expectations
+      - properties
+      - reason
+      additionalProperties: false
+      properties:
+        story_id: *id002
+        version: *id003
+        expectations:
+          type: array
+          minItems: 1
+          items: *id004
+        properties:
+          type: array
+          minItems: 1
+          items: *id005
+        reason: *id001
+  story.verification.written:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - commit_sha
+      - checks
+      additionalProperties: false
+      properties:
+        story_id: *id002
+        version: *id003
+        commit_sha:
+          $ref: '#/$defs/GitSha'
+        checks:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: array
+            minItems: 1
+            items: *id001
+  story.validation.requested:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - commit_sha
+      - run_id
+      - expectations
+      - properties
+      - receipt
+      additionalProperties: false
+      properties:
+        story_id: *id002
+        version: *id003
+        commit_sha:
+          $ref: '#/$defs/GitSha'
+        run_id:
+          $ref: '#/$defs/RunId'
+        expectations:
+          type: array
+          minItems: 1
+          items: *id004
+        properties:
+          type: array
+          minItems: 1
+          items: *id005
+        receipt:
+          type: object
+  story.validation.judged:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - commit_sha
+      - run_id
+      - answers
+      additionalProperties: false
+      properties:
+        story_id: *id002
+        version: *id003
+        commit_sha:
+          $ref: '#/$defs/GitSha'
+        run_id:
+          $ref: '#/$defs/RunId'
+        answers:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+            - property_id
+            - verdict
+            - run_id
+            - explanation
+            additionalProperties: false
+            properties:
+              property_id: *id001
+              verdict:
+                type: string
+                enum:
+                - supported
+                - contradicted
+                - insufficient_evidence
+              run_id:
+                $ref: '#/$defs/RunId'
+              explanation: *id001
+
+  story.verification.review.requested:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - expectations
+      - properties
+      - reason
+      - commit_sha
+      - checks
+      additionalProperties: false
+      properties:
+        story_id:
+          $ref: '#/$defs/StoryId'
+        version:
+          type: integer
+          minimum: 1
+        expectations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+            - id
+            - text
+            - source_refs
+            additionalProperties: false
+            properties:
+              id:
+                $ref: '#/$defs/BehaviourId'
+              text: &reviewid001
+                type: string
+                minLength: 1
+              source_refs:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required:
+                  - event_id
+                  - quote
+                  additionalProperties: false
+                  properties:
+                    event_id:
+                      $ref: '#/$defs/EventId'
+                    quote: *reviewid001
+        properties:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+            - id
+            - question
+            - scope
+            - expectation_ids
+            - verification
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+                pattern: ^I[0-9]+\.S[0-9]+\.P[0-9]+$
+              question:
+                type: string
+                pattern: \?\s*$
+              scope: *reviewid001
+              expectation_ids:
+                type: array
+                minItems: 1
+                items:
+                  $ref: '#/$defs/BehaviourId'
+              verification: *reviewid001
+        reason: *reviewid001
+        commit_sha:
+          $ref: '#/$defs/GitSha'
+        checks:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+  story.verification.reviewed:
+    payload_schema:
+      type: object
+      required:
+      - story_id
+      - version
+      - verdict
+      - reason
+      additionalProperties: false
+      properties:
+        story_id:
+          $ref: '#/$defs/StoryId'
+        version:
+          type: integer
+          minimum: 1
+        verdict:
+          type: string
+          enum:
+          - pass
+          - fail
+        reason:
+          type: string
+          minLength: 1

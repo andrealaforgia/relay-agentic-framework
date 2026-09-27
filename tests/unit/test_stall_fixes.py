@@ -29,7 +29,7 @@ def test_already_satisfied_criterion_completes_without_build(client, publisher) 
     check = swarm.sent("run.requested")[-1]  # the claim is machine-verified, not trusted
     publisher.send("toolgate", "coordinator", "run.completed",
                    {"run_id": check.payload["run_id"], "kind": "acceptance_test",
-                    "commit_sha": SHA_SPEC, "exit_code": 0, "duration_s": 0.2,
+                    "commit_sha": check.payload["commit_sha"], "exit_code": 0, "duration_s": 0.2,
                     "output_digest": "d" * 64})
     swarm.pump()
     assert swarm.behaviour("I1.S1.B1").state == BehaviourState.DONE
@@ -46,7 +46,7 @@ def test_false_satisfied_claim_goes_back_to_specifier(client, publisher) -> None
     check = swarm.sent("run.requested")[-1]
     publisher.send("toolgate", "coordinator", "run.completed",
                    {"run_id": check.payload["run_id"], "kind": "acceptance_test",
-                    "commit_sha": SHA_SPEC, "exit_code": 1, "duration_s": 0.2,
+                    "commit_sha": check.payload["commit_sha"], "exit_code": 1, "duration_s": 0.2,
                     "output_digest": "d" * 64})
     swarm.pump()
     # not trusted: the failed guard sends the spec back, it does not complete

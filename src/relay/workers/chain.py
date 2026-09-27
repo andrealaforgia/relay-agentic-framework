@@ -171,16 +171,23 @@ class ChainWorker(Worker):
     def handle(self, env: Envelope) -> str | None:
         # Crashed after publishing, before acking? The reply is already on the
         # stream — never invoke the model again for work that is already done.
+        from relay.workers.reviews import forward_review
+
         existing = self._reply_on_stream(env.event_id)
         if existing is not None:
+            forward_review(self, env, existing)
             return existing
 
         # Gate turns run in a detached worktree pinned to the reviewed SHA:
         # reviewing the wrong code is physically impossible.
-        if env.type == "gate.requested" and env.payload.get("commit_sha"):
-            return self._handle_in_pinned_worktree(env)
-
-        return self._run_turn_loop(env, self.workspace)
+        if env.type in ("gate.requested", "story.verification.review.requested",
+                        "story.validation.requested") and env.payload.get("commit_sha"):
+            reply = self._handle_in_pinned_worktree(env)
+        else:
+            reply = self._run_turn_loop(env, self.workspace)
+        if reply:
+            forward_review(self, env, reply)
+        return reply
 
     def _handle_in_pinned_worktree(self, env: Envelope) -> str | None:
         import tempfile
@@ -216,17 +223,25 @@ class ChainWorker(Worker):
             vocabulary=self._vocabulary,
             relay_send=_relay_send_path(),
         ) + briefing.build(self.workspace, self.role, env.type, env.payload)
+        from relay.workers.reviews import is_code_review, structured_prompt, publish_result
+
+        runner = self.runners.get(env.type, self.runner)
+        structured_review = is_code_review(self, env) and runner.capabilities.structured_reviews
+        if structured_review:
+            base_prompt = structured_prompt(self, env) + briefing.build(
+                self.workspace, self.role, env.type, env.payload)
         prompt = base_prompt
 
         def on_event(activity: str) -> None:
             print(f"[{time.strftime('%H:%M:%S')}]   {activity}", flush=True)
             self.heartbeat(status=f"{env.type}: {activity[:120]}")
 
-        scope = env.behaviour_id or env.gate_id or env.type
+        scope = (env.behaviour_id or env.gate_id or
+                 (f"{env.story_id}:{env.type}:v{env.payload.get('version', 1)}" if env.story_id else env.type))
         for _correction in range(MAX_CORRECTIONS + 1):
-            session_ref = self._scoped_session(scope)
+            session_ref = None if structured_review else self._scoped_session(scope)
             started = time.monotonic()
-            result = self.runners.get(env.type, self.runner).run_turn(
+            result = runner.run_turn(
                 prompt=prompt,
                 cwd=cwd,
                 session_ref=session_ref,
@@ -246,6 +261,7 @@ class ChainWorker(Worker):
                 print(f"[{time.strftime('%H:%M:%S')}] turn cost ${result.cost_usd:.2f} "
                       f"(worker total ${self._cost_total:.2f})", flush=True)
 
+            review_error = publish_result(self, env, result) if structured_review else None
             reply_id = self._reply_on_stream(env.event_id)
             if reply_id is not None:
                 return reply_id
@@ -256,7 +272,10 @@ class ChainWorker(Worker):
                 print(f"[{time.strftime('%H:%M:%S')}] !! {result.error}", flush=True)
                 break
 
-            detail = result.error or "turn ended with no reply on the stream"
+            detail = review_error or result.error or "turn ended with no reply on the stream"
+            if structured_review:
+                prompt = base_prompt + "\nCorrection: " + detail + "\nReturn corrected review JSON."
+                continue
             # append, never replace: a runner without session resume must
             # still see the original trigger it is being corrected about
             prompt = base_prompt + (

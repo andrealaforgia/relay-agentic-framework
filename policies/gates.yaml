@@ -3,6 +3,8 @@
 # entry. No timeout ever auto-approves; human gates never expire.
 
 per_behaviour:
+  # Optional second reviewer, launched automatically when enabled:
+  # - { gate: codex_review, role: codex_reviewer, timeout_s: 1800, retries: 1 }
   - { gate: code_review, role: reviewer, timeout_s: 1800, retries: 1 }
   - { gate: test_design, role: qa,       timeout_s: 1800, retries: 1 }
 

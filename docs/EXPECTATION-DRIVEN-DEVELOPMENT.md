@@ -33,6 +33,50 @@ and verification attempts are bounded by `max_attempts`; silence never approves.
 A story-level `drop` is reported as accepted risk, not verification. Replan explicitly
 to remove or revise scope before continuing that story.
 
+## Codex questions and Claude self-review
+
+For protocol-2 stories, Relay uses two models behind the Analyst role. By default,
+`story.preparation.requested` uses Codex in a read-only sandbox with high reasoning
+effort. `story.validation.requested` uses Claude Opus with high effort to review
+the implementation against the original questions and the actual execution receipt.
+Normal analysis and reconnaissance retain the role's configured runner.
+
+Question authoring uses the model selected by the Codex CLI with high reasoning
+effort. No model ID is hard-coded. These defaults apply without extra configuration;
+to make them explicit in the project's `.relay/relay.toml`, use:
+
+```toml
+[roles.analyst.triggers."story.preparation.requested"]
+runner = "codex"
+effort = "high"
+sandbox = "read-only"
+
+[roles.analyst.triggers."story.validation.requested"]
+runner = "claude"
+model = "opus"
+effort = "high"
+```
+
+To select a particular Codex model instead, add its exact ID as `model` in the
+preparation trigger section. Both CLIs must be installed
+and authenticated on the analyst worker host. Restart the workers after changing
+configuration. No new worker or gate is needed. Existing protocol-2 stories already
+prepared keep their questions; an explicit approved replan is required to regenerate
+them. Historical protocol-1 roadmaps do not acquire these stages automatically.
+
+Codex returns structured preparation data. Relay checks the story/version, exact
+expectations and source quotations before publishing it. Material ambiguity is
+reported as an error instead of invented requirements. Codex does not need Redis
+access to publish questions. The coordinator still validates and preserves the
+obligations before any builder starts.
+
+Claude receives those same question IDs and texts, the current receipt and a
+checkout pinned to its candidate commit. Its session is separate from question
+authoring. Every question needs a supported, contradicted or insufficient-evidence
+answer; self-review is not an instruction to approve. A failed model invocation or
+invalid output never substitutes for questions or evidence. Turn usage records
+identify the configured model, or report it as unknown when no model was supplied.
+
 ## Receipt contents and guarantees
 
 A receipt contains the story/version, run/request identities, candidate SHA,
@@ -107,6 +151,12 @@ property tests and use a recorded fixed seed. Checks must name files or pytest
 nodes, not directories/options. Keep property and acceptance checks in separate
 files. Adding another test runner requires another real result adapter; do not
 simulate pytest output.
+
+Before starting a protocol-2 engagement, run `relay doctor --evidence` from the
+project directory. This checks the launch environment for an execution mode and
+validates the configured image digest format. It does not run a container or prove
+that the project's toolchain works. Restart the toolgate after environment changes;
+checking your shell does not change an already-running worker's environment.
 
 ## Inspect, repeat and evaluate
 

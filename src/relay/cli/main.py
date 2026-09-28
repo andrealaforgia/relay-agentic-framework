@@ -971,7 +971,10 @@ def export(
 
 
 @app.command()
-def doctor(swarm: str = SwarmOpt) -> None:
+def doctor(
+    swarm: str = SwarmOpt,
+    evidence: bool = typer.Option(False, "--evidence", help="Check evidence execution configuration in this launch environment."),
+) -> None:
     """Preflight checks: Redis reachable, AOF on, ledger audit clean."""
     name = _swarm(swarm)
     failures = 0
@@ -998,7 +1001,23 @@ def doctor(swarm: str = SwarmOpt) -> None:
         failures += 1
 
     failures += _check_toolchain()
+    if evidence:
+        failures += _check_evidence_configuration()
     raise typer.Exit(1 if failures else 0)
+
+
+def _check_evidence_configuration() -> int:
+    from relay.workers.evidence_runner import invocation
+
+    try:
+        invocation(["true"], Path.cwd(), Path.cwd(), Path.cwd())
+    except ValueError as error:
+        console.print(f"Evidence execution configuration: {error}", markup=False, style="red")
+        return 1
+    mode = "container" if os.environ.get("RELAY_EVIDENCE_IMAGE") else "explicit native execution"
+    console.print(f"Evidence configuration: {mode}. Configuration only; execution has not been tested.")
+    console.print("This checks the launch environment; restart the toolgate to apply environment changes.")
+    return 0
 
 
 def _leading_program(command: str) -> str:

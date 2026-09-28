@@ -11,8 +11,9 @@ depends on a model remembering it.
 
 ## Expectation-driven delivery
 
-New roadmaps use delivery protocol 2: the analyst records expectations and property
-questions before implementation, the specifier writes property checks, and QA
+New roadmaps use delivery protocol 2: Codex prepares the analyst’s expectations and
+property questions before implementation; Claude Opus answers the original questions
+against execution evidence at the end. The specifier writes property checks, and QA
 reviews them. Completion requires an execution receipt from actual execution at one
 candidate commit and a supported answer to every original question. Missing,
 skipped, stale or inconsistent evidence cannot complete the story.

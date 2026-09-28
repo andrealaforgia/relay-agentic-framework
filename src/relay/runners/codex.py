@@ -1,6 +1,6 @@
 """OpenAI Codex CLI as a runner: `codex exec --json`, resumable threads.
 
-Most work is published via relay-send. For code review, the host validates
+Most work is published via relay-send. For code review and question preparation, the host validates
 the final JSON response and publishes it without exposing Redis to Codex. Sandbox level maps from the
 role's write needs (the analogue of the Claude permission profiles).
 
@@ -66,7 +66,7 @@ class CodexRunner:
     model: str | None = None
     effort: str | None = None
     binary: str = "codex"
-    capabilities: RunnerCaps = RunnerCaps(supports_resume=True, structured_reviews=True)
+    capabilities: RunnerCaps = RunnerCaps(supports_resume=True, structured_reviews=True, structured_preparations=True)
 
     def run_turn(
         self,

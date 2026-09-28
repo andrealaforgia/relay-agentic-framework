@@ -109,6 +109,8 @@ def _runner_for(
     from relay.cli.profiles import settings_path
 
     role_cfg = _role_config(config, role)
+    if override and override.get("runner", role_cfg.get("runner", "claude")) != role_cfg.get("runner", "claude"):
+        role_cfg.pop("model", None)
     role_cfg.update(override or {})
     runner_name = role_cfg.get("runner", "codex" if role == "codex_reviewer" else "claude")
     raw_model = role_cfg.get("model")
@@ -143,13 +145,23 @@ def per_trigger_runners(
     role: str, config: dict[str, object], project: Path
 ) -> dict[str, Runner]:
     """[roles.specifier.triggers] in relay.toml — one brain per kind of work."""
-    triggers = _role_config(config, role).get("triggers")
-    if not isinstance(triggers, dict):
-        return {}
+    defaults: dict[str, dict[str, object]] = {}
+    if role == "analyst":
+        defaults = {
+            "story.preparation.requested": {"runner": "codex", "effort": "high", "sandbox": "read-only"},
+            "story.validation.requested": {"runner": "claude", "model": "opus", "effort": "high"},
+        }
+    configured = _role_config(config, role).get("triggers")
+    if isinstance(configured, dict):
+        for trigger, override in configured.items():
+            if isinstance(override, dict):
+                settings = defaults.setdefault(str(trigger), {})
+                if "runner" in override and override["runner"] != settings.get("runner"):
+                    settings.pop("model", None)
+                settings.update(override)
     return {
-        str(trigger): _runner_for(role, config, project, override=dict(override))
-        for trigger, override in triggers.items()
-        if isinstance(override, dict)
+        trigger: _runner_for(role, config, project, override=override)
+        for trigger, override in defaults.items()
     }
 
 

@@ -1,7 +1,7 @@
 """Invoke a model with a prompt in a workspace.
 
 Work counts only after contract validation and ledger publication. Most roles
-publish via relay-send; read-only review runners return structured JSON for the
+publish via relay-send; read-only review and preparation runners return structured JSON for the
 host to validate and publish. TurnResult.text is otherwise for logs and viewers.
 """
 
@@ -17,6 +17,7 @@ from typing import Protocol
 class RunnerCaps:
     supports_resume: bool
     structured_reviews: bool = False
+    structured_preparations: bool = False
 
 
 @dataclass(frozen=True)

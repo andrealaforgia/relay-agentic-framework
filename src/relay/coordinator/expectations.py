@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import hashlib
 
 from relay import receipts
@@ -77,9 +78,10 @@ def apply(state: SwarmState, env: Envelope) -> None:
         reject(state, env, "superseded story version")
         return
     if env.type.endswith(".requested"):
-        if env.event_id not in evidence.seen_dispatches:
-            evidence.dispatches[env.type] = evidence.dispatches.get(env.type, 0) + 1
-            evidence.seen_dispatches.add(env.event_id)
+        if env.event_id in evidence.seen_dispatches:
+            return
+        evidence.dispatches[env.type] = evidence.dispatches.get(env.type, 0) + 1
+        evidence.seen_dispatches.add(env.event_id)
         evidence.pending_type = env.type
         evidence.pending_id = env.event_id
         evidence.pending_since = env.ts
@@ -232,8 +234,8 @@ def request(
         story_id=story.id,
         iteration_id=story.iteration_id,
     )
-    evidence.pending_id = result.event_id
-    evidence.pending_type = type_
+    # Do not advance the global replay cursor past events still waiting to be read.
+    apply(state, result.envelope)
     return 1
 
 
@@ -411,6 +413,16 @@ def advance_validation(
         )
     if not evidence.ready or evidence.pending_id:
         return False, 0
+    if not re.fullmatch(r"[0-9a-f]{40}", candidate):
+        evidence.failure = (
+            "Cannot dispatch story verification: the recorded candidate commit is missing or invalid. "
+            "Reconcile the story's recorded build/evidence request and retry; required checks remain pending."
+        )
+        evidence.failure_owner = "environment"
+        story.escalated = True
+        return False, dispatcher._ask_owner(
+            state, story.id, evidence.failure, story_id=story.id, iteration_id=story.iteration_id,
+        )
     if not evidence.run_id:
         if evidence.verification_attempts >= dispatcher._policy.max_attempts:
             story.escalated = True
@@ -438,8 +450,7 @@ def advance_validation(
             iteration_id=story.iteration_id,
             commit_sha=candidate,
         )
-        evidence.pending_id = result.event_id
-        evidence.pending_type = "run.requested"
+        apply(state, result.envelope)
         return False, 1
     if evidence.receipt:
         return False, request(

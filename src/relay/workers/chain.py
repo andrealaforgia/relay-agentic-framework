@@ -225,9 +225,18 @@ class ChainWorker(Worker):
         ) + briefing.build(self.workspace, self.role, env.type, env.payload)
         from relay.workers.reviews import is_code_review, structured_prompt, publish_result
 
+        from relay.workers import preparation
+
         runner = self.runners.get(env.type, self.runner)
         structured_review = is_code_review(self, env) and runner.capabilities.structured_reviews
-        if structured_review:
+        structured_preparation = (self.role == "analyst"
+                                  and env.type == "story.preparation.requested"
+                                  and runner.capabilities.structured_preparations)
+        structured_response = structured_review or structured_preparation
+        if structured_preparation:
+            base_prompt = preparation.structured_prompt(self, env) + briefing.build(
+                self.workspace, self.role, env.type, env.payload)
+        elif structured_review:
             base_prompt = structured_prompt(self, env) + briefing.build(
                 self.workspace, self.role, env.type, env.payload)
         prompt = base_prompt
@@ -239,7 +248,7 @@ class ChainWorker(Worker):
         scope = (env.behaviour_id or env.gate_id or
                  (f"{env.story_id}:{env.type}:v{env.payload.get('version', 1)}" if env.story_id else env.type))
         for _correction in range(MAX_CORRECTIONS + 1):
-            session_ref = None if structured_review else self._scoped_session(scope)
+            session_ref = None if structured_response else self._scoped_session(scope)
             started = time.monotonic()
             result = runner.run_turn(
                 prompt=prompt,
@@ -261,7 +270,9 @@ class ChainWorker(Worker):
                 print(f"[{time.strftime('%H:%M:%S')}] turn cost ${result.cost_usd:.2f} "
                       f"(worker total ${self._cost_total:.2f})", flush=True)
 
-            review_error = publish_result(self, env, result) if structured_review else None
+            response_error = publish_result(self, env, result) if structured_review else None
+            if structured_preparation:
+                response_error = preparation.publish_result(self, env, result)
             reply_id = self._reply_on_stream(env.event_id)
             if reply_id is not None:
                 return reply_id
@@ -272,9 +283,9 @@ class ChainWorker(Worker):
                 print(f"[{time.strftime('%H:%M:%S')}] !! {result.error}", flush=True)
                 break
 
-            detail = review_error or result.error or "turn ended with no reply on the stream"
-            if structured_review:
-                prompt = base_prompt + "\nCorrection: " + detail + "\nReturn corrected review JSON."
+            detail = response_error or result.error or "turn ended with no reply on the stream"
+            if structured_response:
+                prompt = base_prompt + "\nCorrection: " + detail + "\nReturn corrected JSON."
                 continue
             # append, never replace: a runner without session resume must
             # still see the original trigger it is being corrected about

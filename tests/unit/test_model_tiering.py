@@ -115,3 +115,28 @@ def test_codex_reviewer_can_coexist_with_claude_builder(tmp_path):
     assert reviewer.model == 'review-model'
     assert reviewer.effort == 'high'
     assert isinstance(_runner_for('builder', config, tmp_path), ClaudeRunner)
+
+
+def test_codex_prepares_questions_and_claude_reviews_them_by_default(tmp_path):
+    from relay.runners.codex import CodexRunner
+    config = {'roles': {'analyst': {'runner': 'claude', 'model': 'opus'}}}
+    runners = per_trigger_runners('analyst', config, tmp_path)
+    preparation = runners['story.preparation.requested']
+    validation = runners['story.validation.requested']
+    assert isinstance(preparation, CodexRunner)
+    assert preparation.model is None  # never pass the Claude alias to Codex
+    assert preparation.effort == 'high'
+    assert preparation.sandbox == 'read-only'
+    assert isinstance(validation, ClaudeRunner)
+    assert validation.model == 'opus'
+    assert validation.effort == 'high'
+
+
+def test_property_question_model_is_configurable_without_changing_self_review(tmp_path):
+    config = {'roles': {'analyst': {'triggers': {
+        'story.preparation.requested': {'model': 'advanced-codex-model', 'effort': 'xhigh'},
+    }}}}
+    runners = per_trigger_runners('analyst', config, tmp_path)
+    assert runners['story.preparation.requested'].model == 'advanced-codex-model'
+    assert runners['story.preparation.requested'].effort == 'xhigh'
+    assert isinstance(runners['story.validation.requested'], ClaudeRunner)

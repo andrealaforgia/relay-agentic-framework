@@ -28,6 +28,7 @@ class PublishResult:
     event_id: str
     seq: int
     stream_id: str
+    envelope: Envelope
 
 
 class Publisher:
@@ -67,7 +68,8 @@ class Publisher:
         seq, stream_id = self._script(
             keys=[seq_key(self._swarm), ledger_key(self._swarm)], args=flat
         )
-        return PublishResult(event_id=envelope.event_id, seq=int(seq), stream_id=stream_id)
+        return PublishResult(event_id=envelope.event_id, seq=int(seq), stream_id=stream_id,
+                             envelope=envelope.model_copy(update={"seq": int(seq)}, deep=True))
 
     def send(
         self,

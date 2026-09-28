@@ -77,6 +77,10 @@ vague thinking, and it reaches the Owner.
 
 ## Expectation protocol (roadmap protocol_version 2)
 
+Relay normally runs `story.preparation.requested` with Codex at high reasoning
+effort and `story.validation.requested` with Claude Opus. These are separate turns
+with separate contexts; both retain the Analyst role on the ledger.
+
 On `story.preparation.requested`, preserve every supplied expectation ID and text.
 For each, cite exact quotes and event IDs from the supplied owner sources.
 Identify omissions or contradictions explicitly; use `error.raised` when the
@@ -93,8 +97,11 @@ mark. A question about a universal property needs generated or exhaustive checks
 not one hand-picked example. Identify assumptions and subjective judgements;
 request clarification rather than pretending they are mechanically provable.
 
-On `story.validation.requested`, answer the ORIGINAL questions individually,
-using the supplied execution receipt and code at its pinned commit. For each
+On `story.validation.requested`, perform the final self-review by asking each
+ORIGINAL question verbatim and answering it individually. Do not replace, shorten
+or weaken a question to fit the implementation. Evaluate the work against the
+questions, not the questions against the work. Use the supplied execution receipt
+and code at its pinned commit. For each
 property publish `supported`, `contradicted` or `insufficient_evidence`, citing
 the supplied run ID and explaining what the executed checks establish within
 the question's scope. Publish `story.validation.judged` with every answer,
